@@ -1473,9 +1473,19 @@ Your agent can provide tools that allow users to manage their own scheduled jobs
 - "Show me my scheduled check-ins"
 - "Cancel my daily standup reminder"
 
+### Recommended Approach: Custom Functions Module
+
+**Best Practice**: Create a `custom_functions.py` module in your agent that wraps the scheduled jobs API. This approach:
+- ✅ Centralizes API logic and configuration
+- ✅ Provides clean function signatures for your agent
+- ✅ Makes it easy to update when the API changes
+- ✅ Keeps your agent code clean and maintainable
+
+See the [Growth Coach example](https://github.com/your-org/growth-coach-agent/blob/main/custom_functions.py) for a complete implementation.
+
 ### Scheduled Jobs API
 
-The middleware exposes a REST API for managing scheduled jobs. Your agent can call these endpoints using HTTP tools.
+The middleware exposes a REST API for managing scheduled jobs. Your agent calls these endpoints using HTTP requests.
 
 **Base URL**: `https://YOUR_MIDDLEWARE_URL/api/v1/scheduled-jobs`
 
@@ -1484,7 +1494,7 @@ The middleware exposes a REST API for managing scheduled jobs. Your agent can ca
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/scheduled-jobs` | Create a new scheduled job |
-| `GET` | `/scheduled-jobs?slack_user_id={user_id}` | List jobs for a user |
+| `GET` | `/scheduled-jobs?user_id={user_id}` | List jobs for a user |
 | `GET` | `/scheduled-jobs/{job_id}` | Get a specific job |
 | `PATCH` | `/scheduled-jobs/{job_id}` | Update a job |
 | `DELETE` | `/scheduled-jobs/{job_id}` | Delete a job |
@@ -1498,42 +1508,48 @@ Each scheduled job has the following fields:
 | `name` | string | Human-readable name (e.g., "Daily Goal Review") |
 | `prompt` | string | The message sent to the agent when the job runs |
 | `agent_id` | string | Your agent's Firestore document ID |
-| `slack_user_id` | string | The Slack user ID who will receive responses |
+| `user_id` | string | User ID from the users collection (platform-agnostic) |
+| `output_platform` | string | Platform to send to: "slack", "google_chat", or "telegram" |
 | `schedule` | string | Cron expression (e.g., "0 9 * * 1-5" for 9 AM weekdays) |
 | `timezone` | string | IANA timezone (e.g., "America/New_York") |
 | `enabled` | boolean | Whether the job is active |
 
-### Example: Create Job Tool
+**Important**: The API now uses `user_id` (platform-agnostic) instead of `slack_user_id`. The middleware looks up the platform-specific identity when delivering messages.
 
-Here's an example tool definition for creating scheduled jobs:
+### Example: Custom Functions Module
+
+Create a `custom_functions.py` file in your agent repository:
 
 ```python
-from google.adk.tools import FunctionTool
+# custom_functions.py
+import requests
+import os
+from typing import List, Dict, Any, Optional
 
 def create_scheduled_reminder(
     name: str,
     prompt: str,
     schedule: str,
-    timezone: str = "UTC"
-) -> dict:
+    timezone: str,
+    user_id: str,
+    output_platform: str = "slack"
+) -> Dict[str, Any]:
     """
-    Create a scheduled reminder that will message the user on a recurring schedule.
+    Create a scheduled reminder that messages the user on a recurring schedule.
 
     Args:
-        name: A friendly name for this reminder (e.g., "Morning Goals Check-in")
-        prompt: The message that will be sent to trigger the conversation
-        schedule: Cron expression for when to run (e.g., "0 9 * * 1-5" for 9 AM weekdays)
-        timezone: IANA timezone name (e.g., "America/New_York", "Europe/London")
+        name: Friendly name for this reminder (e.g., "Morning Goals Check-in")
+        prompt: The message that will be sent to start the conversation
+        schedule: Cron expression (e.g., "0 9 * * 1-5" for 9 AM weekdays)
+        timezone: IANA timezone (e.g., "America/New_York", "America/Los_Angeles")
+        user_id: The user's ID from the users collection (platform-specific ID is looked up)
+        output_platform: Platform to send responses to ("slack", "google_chat", or "telegram")
 
     Returns:
         The created job details including its ID
     """
-    import requests
-
-    # These would come from your agent's context/configuration
-    middleware_url = "https://your-middleware.run.app"
-    agent_id = "your-agent-firestore-id"
-    slack_user_id = get_current_slack_user_id()  # From conversation context
+    middleware_url = os.environ.get("MIDDLEWARE_URL")
+    agent_id = os.environ.get("YOUR_AGENT_ID")  # e.g., GROWTH_COACH_AGENT_ID
 
     response = requests.post(
         f"{middleware_url}/api/v1/scheduled-jobs",
@@ -1541,67 +1557,147 @@ def create_scheduled_reminder(
             "name": name,
             "prompt": prompt,
             "agent_id": agent_id,
-            "slack_user_id": slack_user_id,
+            "user_id": user_id,
+            "output_platform": output_platform,
             "schedule": schedule,
             "timezone": timezone,
             "enabled": True
-        }
+        },
+        timeout=30
     )
-
+    response.raise_for_status()
     return response.json()
 
-create_reminder_tool = FunctionTool(func=create_scheduled_reminder)
-```
 
-### Example: List Jobs Tool
-
-```python
-def list_my_scheduled_jobs() -> list:
+def list_scheduled_reminders(user_id: str) -> List[Dict[str, Any]]:
     """
-    List all scheduled jobs for the current user.
+    List all scheduled reminders for the user.
+
+    Args:
+        user_id: The user's ID from the users collection
 
     Returns:
-        List of scheduled jobs with their details and status
+        List of scheduled jobs with their details (id, name, schedule, etc.)
     """
-    import requests
-
-    middleware_url = "https://your-middleware.run.app"
-    slack_user_id = get_current_slack_user_id()
+    middleware_url = os.environ.get("MIDDLEWARE_URL")
+    agent_id = os.environ.get("YOUR_AGENT_ID")
 
     response = requests.get(
         f"{middleware_url}/api/v1/scheduled-jobs",
-        params={"slack_user_id": slack_user_id}
+        params={"user_id": user_id, "agent_id": agent_id},
+        timeout=30
     )
+    response.raise_for_status()
+    return response.json().get("jobs", [])
 
-    return response.json()["jobs"]
 
-list_jobs_tool = FunctionTool(func=list_my_scheduled_jobs)
-```
-
-### Example: Delete Job Tool
-
-```python
-def delete_scheduled_job(job_id: str) -> dict:
+def update_scheduled_reminder(
+    job_id: str,
+    name: Optional[str] = None,
+    prompt: Optional[str] = None,
+    schedule: Optional[str] = None,
+    timezone: Optional[str] = None,
+    enabled: Optional[bool] = None
+) -> Dict[str, Any]:
     """
-    Delete a scheduled job by its ID.
+    Update an existing scheduled reminder.
 
     Args:
-        job_id: The ID of the job to delete (from list_my_scheduled_jobs)
+        job_id: The job ID (from list_scheduled_reminders)
+        name: New name (optional)
+        prompt: New prompt message (optional)
+        schedule: New cron schedule (optional)
+        timezone: New timezone (optional)
+        enabled: Enable/disable the job (optional)
 
     Returns:
-        Confirmation of deletion
+        Updated job details
     """
-    import requests
+    middleware_url = os.environ.get("MIDDLEWARE_URL")
 
-    middleware_url = "https://your-middleware.run.app"
+    updates = {}
+    if name is not None:
+        updates["name"] = name
+    if prompt is not None:
+        updates["prompt"] = prompt
+    if schedule is not None:
+        updates["schedule"] = schedule
+    if timezone is not None:
+        updates["timezone"] = timezone
+    if enabled is not None:
+        updates["enabled"] = enabled
+
+    response = requests.patch(
+        f"{middleware_url}/api/v1/scheduled-jobs/{job_id}",
+        json=updates,
+        timeout=30
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def delete_scheduled_reminder(job_id: str) -> Dict[str, Any]:
+    """
+    Delete a scheduled reminder.
+
+    Args:
+        job_id: The job ID (from list_scheduled_reminders)
+
+    Returns:
+        Confirmation with job_id and success status
+    """
+    middleware_url = os.environ.get("MIDDLEWARE_URL")
 
     response = requests.delete(
-        f"{middleware_url}/api/v1/scheduled-jobs/{job_id}"
+        f"{middleware_url}/api/v1/scheduled-jobs/{job_id}",
+        timeout=30
     )
 
     return {"success": response.status_code == 204, "job_id": job_id}
+```
 
-delete_job_tool = FunctionTool(func=delete_scheduled_job)
+Then import these functions in your agent:
+
+```python
+# agent.py
+from custom_functions import (
+    create_scheduled_reminder,
+    list_scheduled_reminders,
+    update_scheduled_reminder,
+    delete_scheduled_reminder
+)
+from google.adk.tools import FunctionTool
+
+# Create tools from the functions
+create_reminder_tool = FunctionTool(func=create_scheduled_reminder)
+list_reminders_tool = FunctionTool(func=list_scheduled_reminders)
+update_reminder_tool = FunctionTool(func=update_scheduled_reminder)
+delete_reminder_tool = FunctionTool(func=delete_scheduled_reminder)
+
+# Add to your agent's tools list
+tools = [
+    create_reminder_tool,
+    list_reminders_tool,
+    update_reminder_tool,
+    delete_reminder_tool,
+    # ... your other tools
+]
+```
+
+### Configuration
+
+Your agent needs the following environment variables to access the API:
+
+```python
+# In your agent's deployment configuration
+MIDDLEWARE_URL = "https://your-middleware.run.app"
+YOUR_AGENT_ID = "your-agent-firestore-id"  # Document ID from agents collection
+```
+
+You can get your agent's Firestore ID by:
+
+```bash
+gcloud firestore documents list agents --project=vertex-ai-middleware-prod
 ```
 
 ### Cron Expression Reference
@@ -1619,9 +1715,10 @@ Format: `minute hour day-of-month month day-of-week`
 
 ### Security Considerations
 
-1. **User Ownership**: Jobs are filtered by `slack_user_id` - users can only see/modify their own jobs
+1. **User Ownership**: Jobs are filtered by `user_id` - users can only see/modify their own jobs
 2. **Agent Scope**: Include `agent_id` filter when listing to show only jobs for your agent
 3. **Validation**: The API validates cron expressions and timezone values
+4. **Cross-Platform**: The `user_id` is platform-agnostic, but `output_platform` determines delivery
 
 ### Accessing User Context
 
