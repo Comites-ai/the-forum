@@ -1,8 +1,24 @@
 # Agent Deployment - Middleware Integration
 
-This guide covers how to integrate your Vertex AI agent with the multi-platform middleware, supporting both Slack and Google Chat.
+This guide covers how to integrate your Vertex AI agent with the multi-platform middleware, supporting Slack, Google Chat, and Telegram.
 
 ⚠️ **IMPORTANT**: Copy this file to your agent repository (e.g., `growth-coach-agent/MIDDLEWARE_INTEGRATION.md`) so you see it when working on the agent!
+
+## Quick Start
+
+For multi-platform agents, use the registration script template:
+
+```bash
+# Copy the template to your agent repository
+cp docs/scripts/register_agent_template.py /path/to/your-agent/register_agent.py
+
+# Configure and run
+cd /path/to/your-agent
+# Edit register_agent.py with your agent details
+python register_agent.py
+```
+
+The template handles both the new `platforms` array structure and legacy fields required for backward compatibility.
 
 ## Table of Contents
 
@@ -125,6 +141,30 @@ export NEW_AGENT_VERTEX_ID="projects/YOUR_PROJECT/locations/us-central1/reasonin
 
 ### Step 4: Register Agent with Middleware
 
+**Option A: Use the Template Registration Script (Recommended)**
+
+```bash
+# 1. Copy the template to your agent repository
+cp /path/to/slack-vertex-ai-middleware/docs/scripts/register_agent_template.py \
+   /path/to/your-agent/register_agent.py
+
+# 2. Edit the configuration section in register_agent.py
+# Update: PROJECT_ID, AGENT_NAME, VERTEX_AI_AGENT_ID, SLACK_BOT_ID
+# Configure platform-specific settings (Slack, Google Chat, Telegram)
+
+# 3. Run the registration script
+cd /path/to/your-agent
+python register_agent.py
+
+# This script will:
+# 1. Register your agent in Firestore with the platforms array structure
+# 2. Include legacy fields for backward compatibility with the middleware
+# 3. Support multiple platforms (Slack, Google Chat, Telegram)
+# 4. Output confirmation and next steps
+```
+
+**Option B: Use the Legacy deploy_agent.py Script (Slack only)**
+
 ```bash
 cd /path/to/slack_to_agent_integration
 
@@ -134,12 +174,14 @@ python scripts/deploy_agent.py \
   --slack-bot-id "$NEW_AGENT_SLACK_BOT_ID" \
   --slack-bot-token "$NEW_AGENT_SLACK_BOT_TOKEN"
 
-# This script will:
-# 1. Validate the Vertex AI agent exists and is accessible
-# 2. Validate the Slack bot token is valid
-# 3. Create a new agent record in Firestore
-# 4. Output confirmation and next steps
+# Note: This script only supports Slack and uses the legacy format.
+# For multi-platform agents, use Option A.
 ```
+
+**Important Notes:**
+- The middleware currently requires **legacy fields** (`slack_bot_id` at root level) for lookups
+- The registration script includes both the new `platforms` array AND legacy fields for compatibility
+- Future middleware updates will migrate to platform-based lookups only
 
 ### Step 5: Configure Slack Events API
 

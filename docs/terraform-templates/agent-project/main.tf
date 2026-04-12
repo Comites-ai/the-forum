@@ -236,6 +236,39 @@ resource "google_storage_bucket" "staging" {
 #   --data-file=- --project=${var.project_id}
 
 # ==============================================================================
+# IAM BINDINGS - Grant middleware access to secrets
+# ==============================================================================
+
+# Get the middleware project number for service account email
+data "google_project" "middleware" {
+  project_id = var.middleware_project_id
+}
+
+# Grant middleware access to Slack bot token
+resource "google_secret_manager_secret_iam_member" "slack_token_accessor" {
+  project   = google_project.agent_project.project_id
+  secret_id = google_secret_manager_secret.slack_bot_token.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${data.google_project.middleware.number}-compute@developer.gserviceaccount.com"
+}
+
+# Grant middleware access to Google Chat credentials
+resource "google_secret_manager_secret_iam_member" "chat_credentials_accessor" {
+  project   = google_project.agent_project.project_id
+  secret_id = google_secret_manager_secret.chat_credentials.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${data.google_project.middleware.number}-compute@developer.gserviceaccount.com"
+}
+
+# Grant middleware access to Telegram bot token
+resource "google_secret_manager_secret_iam_member" "telegram_token_accessor" {
+  project   = google_project.agent_project.project_id
+  secret_id = google_secret_manager_secret.telegram_bot_token.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${data.google_project.middleware.number}-compute@developer.gserviceaccount.com"
+}
+
+# ==============================================================================
 # OUTPUTS
 # ==============================================================================
 

@@ -9,7 +9,7 @@ class ScheduledJob(BaseModel):
     Scheduled job configuration stored in Firestore.
 
     Represents a recurring job that sends a prompt to a Vertex AI agent
-    and delivers the response to a user on any platform (Slack, Google Chat, etc.).
+    and delivers the response to a user on any platform (Slack, Google Chat, Telegram).
     """
 
     id: Optional[str] = Field(default=None, description="Firestore document ID")
@@ -21,7 +21,7 @@ class ScheduledJob(BaseModel):
     user_id: str = Field(..., description="Unified user ID from users collection")
     output_platform: str = Field(
         default="slack",
-        description="Platform to deliver responses to (slack, google_chat)"
+        description="Platform to deliver responses to (slack, google_chat, telegram)"
     )
 
     schedule: str = Field(..., description="Cron expression (e.g., '0 9 * * 1-5')")

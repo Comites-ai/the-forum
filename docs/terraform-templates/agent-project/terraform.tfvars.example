@@ -30,6 +30,11 @@ bot_avatar_url   = ""                           # Optional: For Google Chat avat
 secret_name      = "my-agent-credentials"       # Google Chat service account secret name
 
 # ==============================================================================
+# Middleware Configuration
+# ==============================================================================
+middleware_project_id = "vertex-ai-middleware-prod"  # Your middleware project ID for IAM bindings
+
+# ==============================================================================
 # Platform-Specific Notes
 # ==============================================================================
 # After running terraform apply, you'll manually create these secrets:

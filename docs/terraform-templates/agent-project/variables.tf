@@ -49,3 +49,9 @@ variable "secret_name" {
   description = "Name for the Google Chat service account secret in Secret Manager"
   type        = string
 }
+
+variable "middleware_project_id" {
+  description = "The GCP project ID where the middleware is deployed (for IAM bindings)"
+  type        = string
+  default     = "vertex-ai-middleware-prod"
+}

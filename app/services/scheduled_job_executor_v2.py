@@ -10,6 +10,7 @@ from app.services.vertex_ai_service import VertexAIService
 from app.services.identity_service import IdentityService
 from app.services.platforms.slack_connector import SlackConnector
 from app.services.platforms.google_chat_connector import GoogleChatConnector
+from app.services.platforms.telegram_connector import TelegramConnector
 from app.services.platforms.base import PlatformConnector
 
 logger = logging.getLogger(__name__)
@@ -256,7 +257,7 @@ class ScheduledJobExecutorV2:
 
         Args:
             agent: Agent instance
-            platform: Platform name (e.g., "slack", "google_chat")
+            platform: Platform name (e.g., "slack", "google_chat", "telegram")
 
         Returns:
             Platform connector instance, or None if platform not supported
@@ -297,6 +298,33 @@ class ScheduledJobExecutorV2:
             return GoogleChatConnector(
                 service_account_secret_name=google_chat_config.google_chat_service_account_secret,
                 project_id=google_chat_config.google_chat_project_id  # None for backward compatibility
+            )
+
+        elif platform == "telegram":
+            telegram_config = agent.get_telegram_config()
+            if not telegram_config:
+                logger.error(f"Agent {agent.id} has no Telegram configuration")
+                return None
+
+            # Validate that we have either direct token or Secret Manager config
+            has_direct_token = telegram_config.telegram_bot_token is not None
+            has_secret_config = (
+                telegram_config.telegram_bot_token_secret is not None and
+                telegram_config.telegram_bot_token_project_id is not None
+            )
+
+            if not has_direct_token and not has_secret_config:
+                logger.error(
+                    f"Agent {agent.id} Telegram config missing bot token. "
+                    f"Need either telegram_bot_token OR (telegram_bot_token_secret + telegram_bot_token_project_id)"
+                )
+                return None
+
+            return TelegramConnector(
+                bot_token=telegram_config.telegram_bot_token if has_direct_token else None,
+                bot_token_secret=telegram_config.telegram_bot_token_secret if has_secret_config else None,
+                bot_token_project_id=telegram_config.telegram_bot_token_project_id if has_secret_config else None,
+                webhook_secret=None  # Not needed for sending
             )
 
         logger.error(f"Unsupported platform: {platform}")
