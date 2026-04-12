@@ -197,39 +197,43 @@ If you don't see these log lines, your deployed version may be outdated. Redeplo
 
 **Symptoms**: When you send a message to your Google Chat bot, you immediately see a "Bot Name Not Responding" notification, even though the bot processes the message and responds successfully in the background.
 
-**Root Cause**: The Google Chat webhook endpoint is returning an invalid response format. Google Chat only recognizes these response formats:
-- `{"text": "Some message"}` - Shows immediate text response
-- `{}` - Acknowledges receipt without immediate response
+**Root Cause**: The Google Chat webhook endpoint is returning an incorrect response for your use case. Google Chat supports two response patterns:
 
-Any other format (like `{"status": "ok"}`) will cause Google Chat to show the "not responding" error.
+1. **Synchronous response** (for quick replies < 30 seconds): Return `{"text": "Message"}` directly
+2. **Asynchronous response** (for longer processing): Return `{}` and send message via Chat API
 
-**Solution**: Verify that all code paths in your Google Chat webhook handler return valid response formats:
+**You CANNOT do both.** If you return `{"text": "..."}` synchronously AND then send another message via the Chat API asynchronously, Google Chat shows "not responding" errors.
 
+Any other format (like `{"status": "ok"}`, `{"success": true}`) is also invalid.
+
+**Solution**: Choose the correct response pattern based on your processing time:
+
+**For agents with background processing (common case):**
 ```python
-# ✅ CORRECT - Valid Google Chat responses
-return JSONResponse(content={"text": "Processing..."})  # Shows immediate message
-return JSONResponse(content={})  # Silent acknowledgment
+# ✅ CORRECT - Return empty, send actual response via Chat API
+background_tasks.add_task(process_message, ...)
+return JSONResponse(content={})  # No synchronous text
 
-# ❌ INCORRECT - Invalid formats that cause "not responding"
+# ❌ INCORRECT - Don't return text AND send via API
+background_tasks.add_task(process_message, ...)
+return JSONResponse(content={"text": "Processing..."})  # Causes "not responding"!
+```
+
+**For quick responses (< 30 seconds, no background tasks):**
+```python
+# ✅ CORRECT - Return synchronous response only
+result = quick_process(message)
+return JSONResponse(content={"text": result})  # Don't also call Chat API
+```
+
+**Always invalid:**
+```python
+# ❌ INCORRECT - Invalid formats
 return JSONResponse(content={"status": "ok"})
 return JSONResponse(content={"success": True})
 ```
 
-**Where to check**: In [app/api/v1/google_chat_events.py](app/api/v1/google_chat_events.py), ensure all `return JSONResponse(content=...)` statements use one of the valid formats above.
-
-**Example fix**: If you see code like this:
-```python
-if sender_type == "BOT":
-    logger.debug("Ignoring bot message to prevent loops")
-    return JSONResponse(content={"status": "ok"})  # ❌ Wrong!
-```
-
-Change it to:
-```python
-if sender_type == "BOT":
-    logger.debug("Ignoring bot message to prevent loops")
-    return JSONResponse(content={})  # ✅ Correct!
-```
+**Where to check**: In [app/api/v1/google_chat_events.py](app/api/v1/google_chat_events.py), ensure you're using the pattern that matches your processing model.
 
 ---
 

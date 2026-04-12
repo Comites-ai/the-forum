@@ -57,9 +57,10 @@ async def handle_google_chat_event(
         sender_type = sender.get("type")
         if sender_type == "BOT":
             logger.debug("Ignoring bot message to prevent loops")
-            # IMPORTANT: Must return {} not {"status": "ok"} - Google Chat only recognizes
-            # {"text": "..."} or {} as valid webhook responses. Any other format causes
-            # "Not Responding" errors. See TROUBLESHOOTING.md for details.
+            # IMPORTANT: Must return {} - Google Chat only recognizes {"text": "..."} for
+            # synchronous responses or {} for async. Never return {"status": "ok"} or other
+            # formats. See TROUBLESHOOTING.md and
+            # https://developers.google.com/workspace/chat/receive-respond-interactions
             return JSONResponse(content={})
 
         logger.info(
@@ -107,11 +108,11 @@ async def handle_google_chat_event(
             agent.id
         )
 
-        # Return a synchronous response to prevent "not responding" message
-        # The background task will send the actual agent response via the Chat API
-        return JSONResponse(content={
-            "text": "Processing your message..."
-        })
+        # Return empty response - the actual agent response will be sent via Chat API
+        # IMPORTANT: Don't return {"text": "..."} here because we're sending a separate
+        # message via the API. Returning both confuses Google Chat and causes "Not Responding"
+        # errors. See https://developers.google.com/workspace/chat/receive-respond-interactions
+        return JSONResponse(content={})
 
     except Exception as e:
         logger.error(f"Error processing Google Chat event for agent {agent_id}: {e}", exc_info=True)
