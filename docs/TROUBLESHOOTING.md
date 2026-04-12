@@ -191,6 +191,48 @@ If you don't see these log lines, your deployed version may be outdated. Redeplo
 
 ---
 
+## Google Chat Integration Issues
+
+### Bot shows "Not Responding" immediately after receiving messages
+
+**Symptoms**: When you send a message to your Google Chat bot, you immediately see a "Bot Name Not Responding" notification, even though the bot processes the message and responds successfully in the background.
+
+**Root Cause**: The Google Chat webhook endpoint is returning an invalid response format. Google Chat only recognizes these response formats:
+- `{"text": "Some message"}` - Shows immediate text response
+- `{}` - Acknowledges receipt without immediate response
+
+Any other format (like `{"status": "ok"}`) will cause Google Chat to show the "not responding" error.
+
+**Solution**: Verify that all code paths in your Google Chat webhook handler return valid response formats:
+
+```python
+# ✅ CORRECT - Valid Google Chat responses
+return JSONResponse(content={"text": "Processing..."})  # Shows immediate message
+return JSONResponse(content={})  # Silent acknowledgment
+
+# ❌ INCORRECT - Invalid formats that cause "not responding"
+return JSONResponse(content={"status": "ok"})
+return JSONResponse(content={"success": True})
+```
+
+**Where to check**: In [app/api/v1/google_chat_events.py](app/api/v1/google_chat_events.py), ensure all `return JSONResponse(content=...)` statements use one of the valid formats above.
+
+**Example fix**: If you see code like this:
+```python
+if sender_type == "BOT":
+    logger.debug("Ignoring bot message to prevent loops")
+    return JSONResponse(content={"status": "ok"})  # ❌ Wrong!
+```
+
+Change it to:
+```python
+if sender_type == "BOT":
+    logger.debug("Ignoring bot message to prevent loops")
+    return JSONResponse(content={})  # ✅ Correct!
+```
+
+---
+
 ## Vertex AI Issues
 
 ### "Agent not found" errors

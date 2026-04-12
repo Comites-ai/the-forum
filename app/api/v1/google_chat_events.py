@@ -57,7 +57,10 @@ async def handle_google_chat_event(
         sender_type = sender.get("type")
         if sender_type == "BOT":
             logger.debug("Ignoring bot message to prevent loops")
-            return JSONResponse(content={"status": "ok"})
+            # IMPORTANT: Must return {} not {"status": "ok"} - Google Chat only recognizes
+            # {"text": "..."} or {} as valid webhook responses. Any other format causes
+            # "Not Responding" errors. See TROUBLESHOOTING.md for details.
+            return JSONResponse(content={})
 
         logger.info(
             f"Received message event for agent {agent_id} from space: {space_name}, "
