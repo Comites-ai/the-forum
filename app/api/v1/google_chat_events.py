@@ -104,9 +104,11 @@ async def handle_google_chat_event(
             agent.id
         )
 
-        # Return empty object to suppress "not responding" message
-        # Google Chat will wait for our async response via the Chat API
-        return JSONResponse(content={})
+        # Return a synchronous response to prevent "not responding" message
+        # The background task will send the actual agent response via the Chat API
+        return JSONResponse(content={
+            "text": "Processing your message..."
+        })
 
     except Exception as e:
         logger.error(f"Error processing Google Chat event for agent {agent_id}: {e}", exc_info=True)
