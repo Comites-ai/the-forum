@@ -120,6 +120,33 @@ async def handle_google_chat_event(
         return JSONResponse(content={})
 
 
+@router.post("/events/{agent_id}")
+async def google_chat_events_for_agent(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    agent_id: str,
+    message_processor: MessageProcessorV2 = Depends(get_message_processor_v2),
+    firestore: FirestoreService = Depends(get_firestore_service),
+):
+    """
+    Google Chat Events API endpoint for a specific agent.
+
+    Handles message events from Google Chat for a specific agent identified by agent_id.
+    Each Google Chat bot should be configured to send webhooks to its own URL:
+    - /api/v1/google-chat/events/hynoYrK8SLdiroWvhe1M (Sam the Som)
+    - /api/v1/google-chat/events/UneGKRAUpYvrjqzAHui9 (Growth Coach)
+
+    Returns 200 immediately. Processes events in background.
+    """
+    return await handle_google_chat_event(
+        request=request,
+        background_tasks=background_tasks,
+        agent_id=agent_id,
+        message_processor=message_processor,
+        firestore=firestore,
+    )
+
+
 @router.post("/events")
 async def google_chat_events(
     request: Request,
@@ -128,14 +155,16 @@ async def google_chat_events(
     firestore: FirestoreService = Depends(get_firestore_service),
 ):
     """
-    Google Chat Events API endpoint.
+    Google Chat Events API endpoint (legacy/fallback).
 
-    Handles message events from Google Chat. For MVP, uses the first enabled
-    Google Chat agent. In production, should match by bot name or space.
+    Handles message events from Google Chat. Uses the first enabled
+    Google Chat agent for backward compatibility.
+
+    DEPRECATED: Use /events/{agent_id} instead for explicit routing.
 
     Returns 200 immediately. Processes events in background.
     """
-    # For MVP: Find first enabled Google Chat agent
+    # For backward compatibility: Find first enabled Google Chat agent
     agents = await firestore.list_agents()
     agent_id = None
 
