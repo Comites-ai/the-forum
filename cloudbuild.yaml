@@ -29,7 +29,7 @@ steps:
       - 'managed'
       - '--allow-unauthenticated'
       - '--set-env-vars'
-      - 'GCP_PROJECT_ID=$PROJECT_ID,ENVIRONMENT=production,GCP_LOCATION=$_GCP_LOCATION,GCS_BUCKET_NAME=$_GCS_BUCKET_NAME'
+      - 'GCP_PROJECT_ID=$PROJECT_ID,ENVIRONMENT=production,GCP_LOCATION=$_GCP_LOCATION,GCS_BUCKET_NAME=$_GCS_BUCKET_NAME,MCP_GLOBAL_API_KEY_SECRET=mcp-global-api-key'
       - '--set-secrets'
       - 'SLACK_SIGNING_SECRET=slack-signing-secret:latest'
 
