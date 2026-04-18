@@ -27,6 +27,9 @@ google-api-python-client==2.151.0
 google-auth==2.37.0
 google-auth-httplib2==0.2.0
 
+# MCP (Model Context Protocol) — server + client for MCP proxy endpoints
+mcp>=1.9.4
+
 # Utilities
 httpx==0.28.0
 python-dotenv==1.0.1

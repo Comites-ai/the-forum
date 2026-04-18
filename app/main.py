@@ -44,6 +44,10 @@ async def lifespan(app: FastAPI):
     app.state.slack = SlackService()
     app.state.scheduled_job_service = ScheduledJobService(firestore=app.state.firestore)
 
+    # SSE transport instances keyed by agent_id (or "global").
+    # See mcp_router.py for details on the in-process session store.
+    app.state.mcp_sse_transports = {}
+
     # Initialize GCS service if configured
     if settings.gcs_enabled:
         app.state.gcs = GCSService()

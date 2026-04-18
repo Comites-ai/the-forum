@@ -32,6 +32,7 @@ The template handles both the new `platforms` array structure and legacy fields 
 8. [Setting Up GCS for Image Storage](#setting-up-gcs-for-image-storage)
 9. [Building Scheduled Job Tools](#building-scheduled-job-tools)
 10. [Linking Platform Identities](#linking-platform-identities)
+11. [Using MCP Servers with Your Agent](#using-mcp-servers-with-your-agent)
 
 ---
 
@@ -1855,3 +1856,118 @@ If you need to unlink an identity (rare), edit the user document in Firestore:
 ---
 
 **Remember**: Save this file in your agent repo so it's always available when working on the agent!
+
+---
+
+## Using MCP Servers with Your Agent
+
+The middleware acts as an MCP aggregation proxy: it connects to one or more backing MCP servers on behalf of your Vertex AI agent, combining their tools into a single endpoint.  Your agent code configures `MCPToolset` to point at the middleware, and the middleware handles the routing.
+
+### What this enables
+
+- Add any MCP-compatible tool server to your agent without changing the middleware deployment
+- Mix existing public MCP servers with custom ones you deploy yourself
+- Only servers you explicitly configure are accessible — no accidental tool leakage between agents
+
+### Step 1: Configure MCP server(s) in Firestore
+
+In the Firebase console, open your agent document (`agents/{agent_id}`) and add an `mcp_servers` array field.  Each entry is an object with these fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | ✅ | Short identifier used as tool prefix (e.g. `"github"`) |
+| `url` | ✅ | Full SSE endpoint URL of the backing MCP server (e.g. `"https://server.run.app/sse"`) |
+| `enabled` | — | `true` (default) or `false` to temporarily disable |
+| `api_key_secret` | — | Secret Manager secret name for the server's API key |
+| `api_key_project_id` | — | GCP project where that secret lives (defaults to middleware project) |
+| `api_key_header` | — | Header name to send the key in (default: `"X-API-Key"`) |
+
+Example (add directly in Firestore console):
+```json
+{
+  "mcp_servers": [
+    {
+      "name": "github",
+      "url": "https://github-mcp.example.com/sse",
+      "enabled": true,
+      "api_key_secret": "github-mcp-api-key",
+      "api_key_project_id": "my-agent-project",
+      "api_key_header": "X-API-Key"
+    }
+  ]
+}
+```
+
+### Step 2: Store the API key in Secret Manager (if the server requires auth)
+
+```bash
+export AGENT_PROJECT="my-agent-project"
+
+echo -n "YOUR_MCP_SERVER_API_KEY" | gcloud secrets versions add github-mcp-api-key \
+  --data-file=- --project=$AGENT_PROJECT
+
+# Grant middleware access to the secret
+export MIDDLEWARE_PROJECT_ID="your-middleware-project"
+export MIDDLEWARE_PROJECT_NUMBER=$(gcloud projects describe $MIDDLEWARE_PROJECT_ID --format="value(projectNumber)")
+export MIDDLEWARE_SA="${MIDDLEWARE_PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+gcloud secrets add-iam-policy-binding github-mcp-api-key \
+  --member="serviceAccount:${MIDDLEWARE_SA}" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project=$AGENT_PROJECT
+```
+
+### Step 3: Configure your ADK agent to use the middleware MCP endpoint
+
+In your agent code, add `MCPToolset` pointing at the middleware SSE endpoint for your agent:
+
+```python
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseServerParams
+
+MIDDLEWARE_URL = "https://YOUR_MIDDLEWARE_URL"
+AGENT_FIRESTORE_ID = "YOUR_AGENT_DOCUMENT_ID"  # The Firestore doc ID, not the Vertex AI ID
+
+mcp_toolset = MCPToolset(
+    connection_params=SseServerParams(
+        url=f"{MIDDLEWARE_URL}/api/v1/mcp/{AGENT_FIRESTORE_ID}/sse"
+    )
+)
+
+# Add to your agent's tools list
+root_agent = LlmAgent(
+    model="gemini-2.0-flash",
+    tools=[
+        mcp_toolset,
+        # ... your other tools
+    ]
+)
+```
+
+The middleware exposes **two endpoints** per agent:
+
+| Endpoint | Transport | Best for |
+|----------|-----------|----------|
+| `/api/v1/mcp/{agent_id}/sse` | Legacy SSE | ADK `MCPToolset` (current ADK versions) |
+| `/api/v1/mcp/{agent_id}` | Streamable HTTP (MCP 2025-03-26) | Modern MCP clients |
+
+**Tool naming**: Tools from your backing server are prefixed with the server `name` to prevent collisions.  A tool called `create_issue` on the `github` server appears as `github__create_issue` in your agent.
+
+### Step 4: Deploy a custom MCP server (optional)
+
+If you want to write your own MCP server instead of (or in addition to) using an existing one:
+
+1. **Build the server** — see `docs/USING_MCP_SERVER.md` for a Python + FastMCP example
+2. **Deploy it as a Cloud Run service** — uncomment Section 5 in your agent's `terraform/main.tf` and run `terraform apply`
+3. **Register it** in Firestore following Step 1 above, using the Cloud Run URL as `url`
+
+### Verification
+
+Use [mcp-inspector](https://github.com/modelcontextprotocol/inspector) to verify tools are available before deploying your agent:
+
+```bash
+npx @modelcontextprotocol/inspector \
+  sse \
+  https://YOUR_MIDDLEWARE_URL/api/v1/mcp/YOUR_AGENT_ID/sse
+```
+
+You should see your tools listed with the `servername__toolname` prefix.

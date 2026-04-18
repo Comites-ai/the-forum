@@ -9,7 +9,7 @@ This directory contains Terraform configuration for deploying the complete GCP i
   - `scheduler-sa` (Cloud Scheduler invoker)
   - Default Compute SA (used by Cloud Run with necessary permissions)
 - **IAM Permissions**: All necessary roles and permissions for middleware
-- **Secret Manager**: Slack signing secret placeholder
+- **Secret Manager**: Slack signing secret placeholder + `mcp-global-api-key` secret (for the global MCP endpoint)
 - **GCS Bucket**: Temporary storage for Slack file uploads (1-day lifecycle)
 - **Cloud Run**: Middleware service deployment
 - **Cloud Scheduler**: Scheduled job dispatcher (runs every minute)
@@ -116,7 +116,9 @@ The outputs include:
 - Cloud Run URL
 - Service account emails
 - GCS bucket name
-- Webhook URLs
+- Webhook URLs (Slack, Google Chat)
+- Global MCP endpoint URL (`mcp_global_endpoint`)
+- MCP API key secret name (`mcp_global_api_key_secret`)
 - Next steps guide
 
 ## Post-Deployment Steps
@@ -251,6 +253,9 @@ After Terraform deployment:
 3. Register agents with middleware using `scripts/deploy_agent.py`
 4. For Google Chat bots: follow agent-specific terraform setup (see ../docs/FOR_AGENT_DEVELOPERS.md)
 5. Configure Slack Event Subscriptions with webhook URLs
-6. Test all integrations
+6. (Optional) Enable the global MCP endpoint for Claude Code:
+   - Populate the `mcp-global-api-key` secret and set `MCP_GLOBAL_API_KEY_SECRET` env var
+   - See [../docs/USING_MCP_SERVER.md](../docs/USING_MCP_SERVER.md) for step-by-step instructions
+7. Test all integrations
 
 See ../docs/FOR_AGENT_DEVELOPERS.md for complete agent deployment guide.

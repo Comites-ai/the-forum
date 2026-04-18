@@ -6,7 +6,7 @@ from typing import List, Optional
 from google.cloud.firestore import AsyncClient, FieldFilter, ArrayUnion
 
 from app.config import get_settings
-from app.models.agent import Agent
+from app.models.agent import Agent, MCPServerConfig
 from app.models.session import Session
 from app.models.scheduled_job import ScheduledJob
 from app.models.user import User, PlatformIdentity
@@ -778,6 +778,58 @@ class FirestoreService:
         except Exception as e:
             logger.error(f"Error creating session for user {user_id}/agent {agent_id}: {e}")
             raise
+
+    # MCP collection methods
+
+    async def get_global_mcp_servers(self) -> list[MCPServerConfig]:
+        """
+        Read all documents from the top-level `mcp_servers` Firestore collection.
+
+        These are global MCP servers not tied to any specific agent, managed
+        directly by the middleware owner via the Firebase console.
+
+        Returns:
+            List of enabled MCPServerConfig objects
+        """
+        servers: list[MCPServerConfig] = []
+        try:
+            async for doc in self.client.collection("mcp_servers").stream():
+                data = doc.to_dict()
+                try:
+                    config = MCPServerConfig(**data)
+                    if config.enabled:
+                        servers.append(config)
+                except Exception as validation_error:
+                    logger.warning(
+                        f"Skipping invalid MCP server config in mcp_servers/{doc.id}: "
+                        f"{validation_error}"
+                    )
+            logger.info(f"Loaded {len(servers)} global MCP servers")
+        except Exception as e:
+            logger.error(f"Error loading global MCP servers: {e}")
+        return servers
+
+    async def get_all_mcp_servers(self) -> list[MCPServerConfig]:
+        """
+        Return all MCP servers across the global collection AND all agent records.
+
+        Global servers take precedence; agent servers with duplicate names are skipped.
+
+        Returns:
+            Deduplicated list of enabled MCPServerConfig objects
+        """
+        all_servers = await self.get_global_mcp_servers()
+        seen_names = {s.name for s in all_servers}
+
+        agents = await self.list_agents()
+        for agent in agents:
+            for server_config in agent.mcp_servers or []:
+                if server_config.enabled and server_config.name not in seen_names:
+                    all_servers.append(server_config)
+                    seen_names.add(server_config.name)
+
+        logger.info(f"Total MCP servers for global endpoint: {len(all_servers)}")
+        return all_servers
 
     async def update_session_platforms(
         self, session_id: str, platform: str

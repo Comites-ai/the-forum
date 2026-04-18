@@ -3,6 +3,25 @@ from typing import Optional
 from pydantic import BaseModel, Field, model_validator
 
 
+class MCPServerConfig(BaseModel):
+    """Configuration for an MCP server backing this agent."""
+    name: str = Field(..., description="Friendly name, used as tool prefix (e.g. 'github')")
+    url: str = Field(..., description="MCP server SSE endpoint URL (e.g. 'https://server.run.app/sse')")
+    enabled: bool = Field(default=True)
+    api_key_secret: Optional[str] = Field(
+        default=None,
+        description="Secret Manager secret name for the API key sent to this server"
+    )
+    api_key_project_id: Optional[str] = Field(
+        default=None,
+        description="GCP project ID where the API key secret is stored (defaults to middleware project)"
+    )
+    api_key_header: str = Field(
+        default="X-API-Key",
+        description="HTTP header name used to send the API key to the backing server"
+    )
+
+
 class AgentPlatformConfig(BaseModel):
     """
     Platform-specific configuration for an agent.
@@ -80,6 +99,12 @@ class Agent(BaseModel):
     platforms: Optional[list[AgentPlatformConfig]] = Field(
         default=None,
         description="Platform-specific configurations"
+    )
+
+    # MCP server configuration
+    mcp_servers: Optional[list[MCPServerConfig]] = Field(
+        default=None,
+        description="MCP servers this agent's tools are proxied from"
     )
 
     model_config = {"frozen": False}  # Mutable for backward compat migration

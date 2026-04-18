@@ -9,6 +9,7 @@ FastAPI middleware service that routes messages from **Slack**, **Google Chat**,
 - **Cross-Platform Sessions**: Continue conversations across Slack, Google Chat, and Telegram
 - **Session Management**: Automatic session tracking per user+agent combination
 - **Scheduled Jobs**: Proactive agent-initiated messages with rate limiting
+- **MCP Server Support**: Per-agent MCP tool proxy; agents configure backing MCP servers in Firestore and the middleware aggregates their tools — plus a global owner endpoint for Claude Code and other tools
 - **Async Processing**: Responds within 3 seconds, processes in background
 - **Infrastructure as Code**: Complete Terraform configuration
 - **Secure**: Request signature verification, Secret Manager integration
@@ -37,6 +38,25 @@ BackgroundTask:
   └─ Post response via platform connector
 ```
 
+### MCP Tool Proxy
+
+Each Vertex AI ADK agent can declare backing MCP servers in its Firestore record. The middleware aggregates their tools (prefixed `{server_name}__{tool_name}`) and serves them from a stable per-agent endpoint:
+
+```
+ADK Agent
+  └── MCPToolset(url="{middleware}/api/v1/mcp/{agent_id}/sse")   ← SSE (ADK compat)
+Claude Code / owner tools
+  └── MCP server at "{middleware}/api/v1/mcp"  (X-API-Key header) ← Streamable HTTP
+
+                     ▼
+  Middleware MCP Proxy  (aggregates tools, prefixes names)
+        │
+        ├── Backing server A  (e.g. public MCP server)
+        └── Backing server B  (custom Cloud Run service)
+```
+
+The global owner endpoint (`/api/v1/mcp`) exposes all configured MCP servers across all agents plus any global-only servers stored in the `mcp_servers` Firestore collection. See [docs/USING_MCP_SERVER.md](docs/USING_MCP_SERVER.md) for setup.
+
 ### Platform Connectors
 
 The middleware uses a unified `PlatformConnector` interface:
@@ -60,6 +80,7 @@ All platform-specific logic is isolated in connectors, making it easy to add new
 - **Secrets**: Google Cloud Secret Manager
 - **Storage**: Google Cloud Storage (temporary file uploads)
 - **Scheduling**: Google Cloud Scheduler (cron-based job dispatcher)
+- **MCP**: `mcp` Python SDK (Streamable HTTP + SSE transports; multi-server aggregation proxy)
 - **Local Dev**: ngrok for tunneling
 
 ## Prerequisites
@@ -616,8 +637,11 @@ Using Telegram as the reference implementation:
 
 ### Platform Integration
 - [Slack Setup Guide](docs/SLACK_SETUP.md) - Detailed Slack app creation
-- **[For Agent Developers](docs/FOR_AGENT_DEVELOPERS.md)** - Complete guide for deploying agents (Slack + Google Chat)
+- **[For Agent Developers](docs/FOR_AGENT_DEVELOPERS.md)** - Complete guide for deploying agents (Slack + Google Chat + MCP)
   - Copy this to your agent repository for easy reference
+
+### MCP Integration
+- **[Using the MCP Server](docs/USING_MCP_SERVER.md)** - Global/owner MCP endpoint: adding servers, building custom ones, connecting Claude Code
 
 ### Development & Operations
 - [Agent Deployment](docs/AGENT_DEPLOYMENT.md) - How to deploy/update agents

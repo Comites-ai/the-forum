@@ -236,6 +236,82 @@ resource "google_storage_bucket" "staging" {
 #   --data-file=- --project=${var.project_id}
 
 # ==============================================================================
+# SECTION 5: CUSTOM MCP SERVER (Uncomment if deploying your own MCP server)
+# This section creates a Cloud Run service for a custom MCP server and stores
+# its API key so the middleware can authenticate when proxying tool calls.
+# See docs/USING_MCP_SERVER.md for a guide on building the server itself.
+# ==============================================================================
+
+# # Enable Cloud Run API
+# resource "google_project_service" "run" {
+#   project            = google_project.agent_project.project_id
+#   service            = "run.googleapis.com"
+#   disable_on_destroy = false
+# }
+#
+# # Enable Artifact Registry (to store your MCP server image)
+# resource "google_project_service" "artifactregistry" {
+#   project            = google_project.agent_project.project_id
+#   service            = "artifactregistry.googleapis.com"
+#   disable_on_destroy = false
+# }
+#
+# # Cloud Run service hosting the custom MCP server
+# # Build and push your image first:
+# #   docker build -t gcr.io/${var.project_id}/${var.bot_account_id}-mcp:latest .
+# #   docker push gcr.io/${var.project_id}/${var.bot_account_id}-mcp:latest
+# resource "google_cloud_run_v2_service" "mcp_server" {
+#   name     = "${var.bot_account_id}-mcp"
+#   location = var.region
+#   project  = google_project.agent_project.project_id
+#
+#   template {
+#     containers {
+#       image = "gcr.io/${google_project.agent_project.project_id}/${var.bot_account_id}-mcp:latest"
+#
+#       env {
+#         name  = "PORT"
+#         value = "8080"
+#       }
+#     }
+#   }
+#
+#   depends_on = [
+#     google_project_service.run,
+#     google_project_service.artifactregistry,
+#   ]
+# }
+#
+# # Allow unauthenticated invocations — auth is handled via X-API-Key header
+# resource "google_cloud_run_v2_service_iam_member" "mcp_server_public" {
+#   project  = google_project.agent_project.project_id
+#   location = var.region
+#   name     = google_cloud_run_v2_service.mcp_server.name
+#   role     = "roles/run.invoker"
+#   member   = "allUsers"
+# }
+#
+# # API key secret — the middleware sends this in the X-API-Key header
+# resource "google_secret_manager_secret" "mcp_api_key" {
+#   project   = google_project.agent_project.project_id
+#   secret_id = "${var.bot_account_id}-mcp-api-key"
+#
+#   replication {
+#     auto {}
+#   }
+#
+#   depends_on = [google_project_service.secretmanager]
+# }
+#
+# # Grant the middleware Cloud Run SA access to the MCP API key secret
+# resource "google_secret_manager_secret_iam_member" "mcp_api_key_accessor" {
+#   project   = google_project.agent_project.project_id
+#   secret_id = google_secret_manager_secret.mcp_api_key.secret_id
+#   role      = "roles/secretmanager.secretAccessor"
+#   member    = "serviceAccount:${data.google_project.middleware.number}-compute@developer.gserviceaccount.com"
+# }
+
+# ==============================================================================
 # IAM BINDINGS - Grant middleware access to secrets
 # ==============================================================================
 
@@ -426,9 +502,45 @@ SECTION 4: TELEGRAM SETUP (If using Telegram)
 
 4e. Enable Telegram for your agent in middleware using Firestore console or script
 
-SECTION 5: GOOGLE APIS SETUP (Share Google Drive/Sheets)
+SECTION 5: CUSTOM MCP SERVER SETUP (If using a custom MCP server)
 
-4a. Share Google Sheets/Drive files with the Google APIs service account:
+5a. Build and push your MCP server image:
+    cd /path/to/your-mcp-server
+    docker build -t gcr.io/${var.project_id}/${var.bot_account_id}-mcp:latest .
+    docker push gcr.io/${var.project_id}/${var.bot_account_id}-mcp:latest
+
+5b. Uncomment SECTION 5 in main.tf, then apply:
+    terraform apply
+
+5c. Generate and store the MCP API key:
+    openssl rand -base64 32 | tr -d '\n' | \
+      gcloud secrets versions add ${var.bot_account_id}-mcp-api-key \
+        --data-file=- --project=${var.project_id}
+
+5d. Register the MCP server in your agent's Firestore document.
+    Add the following to the agent's mcp_servers array in the Firebase console
+    (Firestore → agents → YOUR_AGENT_ID):
+    {
+      "name": "${var.bot_account_id}",
+      "url":  "https://MCP_SERVER_CLOUD_RUN_URL/sse",
+      "enabled": true,
+      "api_key_secret": "${var.bot_account_id}-mcp-api-key",
+      "api_key_project_id": "${var.project_id}",
+      "api_key_header": "X-API-Key"
+    }
+
+5e. Configure your ADK agent to use the middleware MCP endpoint:
+    In your agent code, add MCPToolset pointing to the middleware:
+      MCPToolset(
+        connection_params=SseServerParams(
+          url="MIDDLEWARE_URL/api/v1/mcp/AGENT_FIRESTORE_ID/sse"
+        )
+      )
+    See docs/FOR_AGENT_DEVELOPERS.md → "Using MCP Servers with Your Agent"
+
+SECTION 6: GOOGLE APIS SETUP (Share Google Drive/Sheets)
+
+6a. Share Google Sheets/Drive files with the Google APIs service account:
     Service Account Email: ${google_service_account.agent_apis.email}
 
     Instructions:
