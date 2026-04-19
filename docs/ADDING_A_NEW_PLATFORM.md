@@ -281,6 +281,32 @@ async def myplatform_events(
 - Verify webhook authenticity before processing
 - Log all important events for debugging
 
+**Important: Multiple Bots on Same Platform**
+
+If you have multiple agents using the same platform (e.g., two different MyPlatform bots), you'll need agent-specific webhook URLs to route messages correctly. Add a parameterized route:
+
+```python
+@router.post("/events/{agent_id}")
+async def myplatform_events_for_agent(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    agent_id: str,
+    message_processor: MessageProcessorV2 = Depends(get_message_processor_v2),
+    firestore: FirestoreService = Depends(get_firestore_service),
+):
+    """
+    MyPlatform webhook endpoint for a specific agent.
+
+    Each bot should be configured with its own webhook URL:
+    - /api/v1/myplatform/events/AGENT_ID_1
+    - /api/v1/myplatform/events/AGENT_ID_2
+    """
+    # ... same logic as above, but use the agent_id parameter directly
+    # instead of searching for the first enabled agent
+```
+
+This ensures each bot's messages are routed to the correct agent configuration. Keep the non-parameterized `/events` endpoint for backward compatibility.
+
 ### Step 3: Register Router
 
 Edit `app/api/v1/routes.py`:
