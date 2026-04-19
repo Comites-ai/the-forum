@@ -4,9 +4,24 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies.
+#
+# Node.js + uv are required for stdio-transport MCP servers:
+#   - `npx` runs npm-packaged MCP servers (e.g. @modelcontextprotocol/server-github)
+#   - `uvx` runs PyPI-packaged MCP servers (e.g. mcp-server-time)
+#
+# These are only invoked when an MCP server in Firestore has
+# transport="stdio" and a command in the allowlist ({npx, uvx}).
+# See app/models/agent.py::ALLOWED_STDIO_COMMANDS.
 RUN apt-get update && apt-get install -y \
-    gcc \
+        gcc \
+        curl \
+        ca-certificates \
+        gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && pip install --no-cache-dir uv \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies

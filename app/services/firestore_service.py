@@ -809,27 +809,25 @@ class FirestoreService:
             logger.error(f"Error loading global MCP servers: {e}")
         return servers
 
-    async def get_all_mcp_servers(self) -> list[MCPServerConfig]:
+    async def get_global_mcp_server_by_name(self, name: str) -> Optional[MCPServerConfig]:
         """
-        Return all MCP servers across the global collection AND all agent records.
+        Fetch a single global MCP server from the `mcp_servers` collection.
 
-        Global servers take precedence; agent servers with duplicate names are skipped.
-
-        Returns:
-            Deduplicated list of enabled MCPServerConfig objects
+        The collection document ID is expected to equal the server's `name`
+        field — return None if the document doesn't exist, the config fails
+        validation, or the server is disabled.
         """
-        all_servers = await self.get_global_mcp_servers()
-        seen_names = {s.name for s in all_servers}
-
-        agents = await self.list_agents()
-        for agent in agents:
-            for server_config in agent.mcp_servers or []:
-                if server_config.enabled and server_config.name not in seen_names:
-                    all_servers.append(server_config)
-                    seen_names.add(server_config.name)
-
-        logger.info(f"Total MCP servers for global endpoint: {len(all_servers)}")
-        return all_servers
+        try:
+            doc = await self.client.collection("mcp_servers").document(name).get()
+            if not doc.exists:
+                return None
+            config = MCPServerConfig(**doc.to_dict())
+            if not config.enabled:
+                return None
+            return config
+        except Exception as e:
+            logger.error(f"Error loading global MCP server '{name}': {e}")
+            return None
 
     async def update_session_platforms(
         self, session_id: str, platform: str

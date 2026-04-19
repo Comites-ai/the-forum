@@ -1871,50 +1871,96 @@ The middleware acts as an MCP aggregation proxy: it connects to one or more back
 
 ### Step 1: Configure MCP server(s) in Firestore
 
-In the Firebase console, open your agent document (`agents/{agent_id}`) and add an `mcp_servers` array field.  Each entry is an object with these fields:
+In the Firebase console, open your agent document (`agents/{agent_id}`) and add an `mcp_servers` array field.  Each entry describes one backing server and picks a transport.
+
+**Common fields (all transports):**
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | ✅ | Short identifier used as tool prefix (e.g. `"github"`) |
-| `url` | ✅ | Full SSE endpoint URL of the backing MCP server (e.g. `"https://server.run.app/sse"`) |
+| `transport` | — | `"sse"` (default), `"streamable_http"`, or `"stdio"` |
 | `enabled` | — | `true` (default) or `false` to temporarily disable |
+
+**HTTP transport fields (`sse`, `streamable_http`):**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `url` | ✅ | Full endpoint URL of the backing MCP server |
 | `api_key_secret` | — | Secret Manager secret name for the server's API key |
 | `api_key_project_id` | — | GCP project where that secret lives (defaults to middleware project) |
 | `api_key_header` | — | Header name to send the key in (default: `"X-API-Key"`) |
 
-Example (add directly in Firestore console):
+**stdio transport fields:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `command` | ✅ | Must be `"npx"` or `"uvx"` — other commands are rejected by the allowlist |
+| `args` | ✅ | Arguments passed to the command (e.g. `["-y", "@modelcontextprotocol/server-github"]`) |
+| `env` | — | Literal env vars for the subprocess |
+| `env_secrets` | — | Map of env var name → Secret Manager secret name (resolved at call time) |
+
+Example (HTTP server with API key):
 ```json
 {
   "mcp_servers": [
     {
       "name": "github",
-      "url": "https://github-mcp.example.com/sse",
+      "transport": "streamable_http",
       "enabled": true,
+      "url": "https://github-mcp.example.com/mcp",
       "api_key_secret": "github-mcp-api-key",
-      "api_key_project_id": "my-agent-project",
-      "api_key_header": "X-API-Key"
+      "api_key_project_id": "my-agent-project"
     }
   ]
 }
 ```
 
-### Step 2: Store the API key in Secret Manager (if the server requires auth)
+Example (stdio server via `npx`):
+```json
+{
+  "mcp_servers": [
+    {
+      "name": "github",
+      "transport": "stdio",
+      "enabled": true,
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env_secrets": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "github-pat-secret"
+      }
+    }
+  ]
+}
+```
+
+**stdio note:** Most MCP ecosystem packages (e.g. `@modelcontextprotocol/server-*`, `mcp-server-*`) ship as stdio and this is the lowest-infrastructure way to add them — no Cloud Run deployment, just a Firestore entry.  Cold-start cost is 5–10 seconds on first call while `npx`/`uvx` fetches the package.  Only `npx` and `uvx` are accepted as commands.
+
+### Step 2: Store secrets in Secret Manager (if needed)
+
+For HTTP transports, `api_key_secret` names the secret.  For stdio transports, each entry in `env_secrets` names a secret whose value becomes an environment variable in the subprocess.  Both are stored and granted the same way:
 
 ```bash
 export AGENT_PROJECT="my-agent-project"
 
+# HTTP transport: store the backing server's API key
 echo -n "YOUR_MCP_SERVER_API_KEY" | gcloud secrets versions add github-mcp-api-key \
   --data-file=- --project=$AGENT_PROJECT
 
-# Grant middleware access to the secret
+# stdio transport: store any token the subprocess needs (e.g. GITHUB_PERSONAL_ACCESS_TOKEN)
+echo -n "ghp_YOUR_GITHUB_TOKEN" | gcloud secrets versions add github-pat-secret \
+  --data-file=- --project=$AGENT_PROJECT
+
+# Grant middleware access to whichever secrets you created
 export MIDDLEWARE_PROJECT_ID="your-middleware-project"
 export MIDDLEWARE_PROJECT_NUMBER=$(gcloud projects describe $MIDDLEWARE_PROJECT_ID --format="value(projectNumber)")
 export MIDDLEWARE_SA="${MIDDLEWARE_PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 
-gcloud secrets add-iam-policy-binding github-mcp-api-key \
-  --member="serviceAccount:${MIDDLEWARE_SA}" \
-  --role="roles/secretmanager.secretAccessor" \
-  --project=$AGENT_PROJECT
+for secret in github-mcp-api-key github-pat-secret; do
+  gcloud secrets add-iam-policy-binding $secret \
+    --member="serviceAccount:${MIDDLEWARE_SA}" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project=$AGENT_PROJECT 2>/dev/null || true
+done
 ```
 
 ### Step 3: Configure your ADK agent to use the middleware MCP endpoint

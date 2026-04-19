@@ -9,7 +9,7 @@ FastAPI middleware service that routes messages from **Slack**, **Google Chat**,
 - **Cross-Platform Sessions**: Continue conversations across Slack, Google Chat, and Telegram
 - **Session Management**: Automatic session tracking per user+agent combination
 - **Scheduled Jobs**: Proactive agent-initiated messages with rate limiting
-- **MCP Server Support**: Per-agent MCP tool proxy; agents configure backing MCP servers in Firestore and the middleware aggregates their tools — plus a global owner endpoint for Claude Code and other tools
+- **MCP Server Support**: Per-agent MCP tool proxy that aggregates multiple backing servers into one endpoint, plus per-server global URLs for Claude Code and other owner tools. Supports `stdio` (npx/uvx), `streamable_http`, and `sse` transports.
 - **Async Processing**: Responds within 3 seconds, processes in background
 - **Infrastructure as Code**: Complete Terraform configuration
 - **Secure**: Request signature verification, Secret Manager integration
@@ -40,22 +40,30 @@ BackgroundTask:
 
 ### MCP Tool Proxy
 
-Each Vertex AI ADK agent can declare backing MCP servers in its Firestore record. The middleware aggregates their tools (prefixed `{server_name}__{tool_name}`) and serves them from a stable per-agent endpoint:
+Two access modes:
 
 ```
-ADK Agent
-  └── MCPToolset(url="{middleware}/api/v1/mcp/{agent_id}/sse")   ← SSE (ADK compat)
-Claude Code / owner tools
-  └── MCP server at "{middleware}/api/v1/mcp"  (X-API-Key header) ← Streamable HTTP
+Agent-scoped (aggregated)                Per-server global (one URL per server)
+─────────────────────────                ─────────────────────────────────────
+ADK Agent                                Claude Code / owner tools
+  └── MCPToolset(url=                      ├── github  → .../mcp/global/github
+      "{middleware}/api/v1/mcp/            ├── time    → .../mcp/global/time
+       {agent_id}/sse")                    └── ...     (shared X-API-Key)
 
-                     ▼
-  Middleware MCP Proxy  (aggregates tools, prefixes names)
-        │
-        ├── Backing server A  (e.g. public MCP server)
-        └── Backing server B  (custom Cloud Run service)
+       ▼                                        ▼
+Middleware aggregator                    Middleware per-server proxy
+ (tool names prefixed                     (tool names unprefixed,
+  as 'server__tool')                       one backing server per URL)
+
+       │                                        │
+       ▼                                        ▼
+   Backing MCP servers (three transports)
+   ├── stdio            (npx/uvx subprocess — ecosystem packages)
+   ├── streamable_http  (MCP spec 2025-03-26)
+   └── sse              (legacy)
 ```
 
-The global owner endpoint (`/api/v1/mcp`) exposes all configured MCP servers across all agents plus any global-only servers stored in the `mcp_servers` Firestore collection. See [docs/USING_MCP_SERVER.md](docs/USING_MCP_SERVER.md) for setup.
+Global MCP servers live in the top-level `mcp_servers` Firestore collection; the URL path matches the document ID. Agent-scoped servers live on each agent's Firestore record. See [docs/USING_MCP_SERVER.md](docs/USING_MCP_SERVER.md) for owner setup and [docs/FOR_AGENT_DEVELOPERS.md](docs/FOR_AGENT_DEVELOPERS.md#using-mcp-servers-with-your-agent) for agent setup.
 
 ### Platform Connectors
 
@@ -80,7 +88,7 @@ All platform-specific logic is isolated in connectors, making it easy to add new
 - **Secrets**: Google Cloud Secret Manager
 - **Storage**: Google Cloud Storage (temporary file uploads)
 - **Scheduling**: Google Cloud Scheduler (cron-based job dispatcher)
-- **MCP**: `mcp` Python SDK (Streamable HTTP + SSE transports; multi-server aggregation proxy)
+- **MCP**: `mcp` Python SDK (Streamable HTTP, SSE, and stdio transports); `node`/`npx` + `uv`/`uvx` baked into the container image for stdio subprocess MCP servers
 - **Local Dev**: ngrok for tunneling
 
 ## Prerequisites

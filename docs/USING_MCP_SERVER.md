@@ -1,6 +1,6 @@
-# Using the Global MCP Server
+# Using the Global MCP Servers
 
-This guide is for the **middleware owner** who wants to expose MCP (Model Context Protocol) tools to Claude Code or other AI tools via the middleware's global endpoint.
+This guide is for the **middleware owner** who wants to expose MCP (Model Context Protocol) tools to Claude Code or other AI tools via the middleware.
 
 For agent developers who want to add MCP tools to their Vertex AI ADK agent, see the [For Agent Developers guide](FOR_AGENT_DEVELOPERS.md#11-using-mcp-servers-with-your-agent).
 
@@ -13,30 +13,36 @@ For agent developers who want to add MCP tools to their Vertex AI ADK agent, see
 3. [Configuring the Global API Key](#3-configuring-the-global-api-key)
 4. [Adding Global MCP Servers in Firestore](#4-adding-global-mcp-servers-in-firestore)
 5. [Building a Custom MCP Server](#5-building-a-custom-mcp-server)
-6. [Deploying a Custom Server to Cloud Run](#6-deploying-a-custom-server-to-cloud-run)
+6. [Deploying a Custom HTTP Server to Cloud Run](#6-deploying-a-custom-http-server-to-cloud-run)
 7. [Connecting Claude Code](#7-connecting-claude-code)
 8. [Verifying with mcp-inspector](#8-verifying-with-mcp-inspector)
-9. [Tool Naming Conventions](#9-tool-naming-conventions)
+9. [Transports and Tool Naming](#9-transports-and-tool-naming)
 
 ---
 
 ## 1. Overview
 
-The middleware exposes a **global MCP endpoint** at:
+The middleware exposes **one URL per globally-registered MCP server**, shaped:
 
 ```
-GET/POST/DELETE  {middleware_url}/api/v1/mcp
+GET/POST/DELETE  {middleware_url}/api/v1/mcp/global/{server_name}
 ```
 
-This endpoint:
-- Uses **Streamable HTTP** transport (MCP spec 2025-03-26) — the modern standard
-- Requires an `X-API-Key` header for authentication
-- Aggregates tools from **all configured MCP servers**: both global-only servers (stored in the `mcp_servers` Firestore collection) and servers registered for each agent
-- Is intended for the middleware owner — use it with Claude Code, custom scripts, or any MCP-compatible client
+Each URL:
+- Uses **Streamable HTTP** transport (MCP spec 2025-03-26); a legacy SSE variant is available at `/api/v1/mcp/global/{server_name}/sse`
+- Requires the same shared `X-API-Key` header (the `mcp-global-api-key` secret)
+- Proxies **exactly one** backing server — no aggregation, no tool name prefixing
+- Maps to a document in the top-level `mcp_servers` Firestore collection
 
-Tools from backing servers are prefixed to prevent collisions:
-- Global servers: `{server_name}__{tool_name}` (e.g., `github__create_issue`)
-- Agent servers: `{agent_id}__{server_name}__{tool_name}` (e.g., `growthcoach__calendar__list_events`)
+Each backing server can use one of three transports:
+
+| Transport | When to use |
+|-----------|-------------|
+| `stdio` | Running an npm/pypi-packaged MCP server as a subprocess (`npx @modelcontextprotocol/server-X`, `uvx mcp-server-Y`). Most ecosystem servers ship this way. |
+| `streamable_http` | Modern HTTP-based MCP servers (you deployed a custom server that speaks the 2025-03-26 spec). |
+| `sse` | Legacy HTTP-based MCP servers (older FastMCP deployments, etc.). |
+
+Agent endpoints (`/api/v1/mcp/{agent_id}`) still aggregate all of an agent's servers into one tool surface — that's unchanged.
 
 ---
 
@@ -55,21 +61,20 @@ Tools from backing servers are prefixed to prevent collisions:
 ```bash
 export MIDDLEWARE_PROJECT_ID=your-middleware-project-id
 
-# Generate a random API key and store it in Secret Manager
 openssl rand -base64 32 | tr -d '\n' | \
   gcloud secrets versions add mcp-global-api-key \
     --data-file=- \
     --project=$MIDDLEWARE_PROJECT_ID
 ```
 
-The `mcp-global-api-key` Secret Manager secret was created by Terraform. You only need to populate it with a value.
+The `mcp-global-api-key` secret was created by Terraform. You only need to populate it.
 
-### Step 2: Enable the endpoint on the Cloud Run service
+### Step 2: Enable the endpoints on the Cloud Run service
 
-Set the `MCP_GLOBAL_API_KEY_SECRET` environment variable to tell the middleware where to find the API key:
+Set `MCP_GLOBAL_API_KEY_SECRET` so the middleware knows where to find the key:
 
 ```bash
-export CLOUD_RUN_SERVICE=slack-vertex-middleware  # your Cloud Run service name
+export CLOUD_RUN_SERVICE=slack-vertex-middleware
 export REGION=us-central1
 
 gcloud run services update $CLOUD_RUN_SERVICE \
@@ -78,103 +83,139 @@ gcloud run services update $CLOUD_RUN_SERVICE \
   --project=$MIDDLEWARE_PROJECT_ID
 ```
 
-### Step 3: Save the API key value for client configuration
+### Step 3: Save the API key value
 
 ```bash
-# Retrieve the key you just stored
 gcloud secrets versions access latest \
   --secret=mcp-global-api-key \
   --project=$MIDDLEWARE_PROJECT_ID
 ```
 
-Save this value — you'll need it in [Section 7](#7-connecting-claude-code).
+You'll need this in [Section 7](#7-connecting-claude-code).
 
 ---
 
 ## 4. Adding Global MCP Servers in Firestore
 
-Global MCP servers (not tied to any agent) are stored in a top-level Firestore collection called `mcp_servers`. Each document represents one backing MCP server.
+Each global MCP server is a document in the top-level `mcp_servers` collection. The **document ID must equal the server's `name` field** — the URL path `/api/v1/mcp/global/{server_name}` looks up the document by that ID.
 
-### Adding a server via the Firebase Console
-
-1. Open [Firebase Console](https://console.firebase.google.com) → your middleware project → Firestore
-2. Navigate to the `mcp_servers` collection (create it if it doesn't exist)
-3. Create a new document with the **document ID** set to the server name (e.g., `github`)
-4. Add the following fields:
+### Common fields (all transports)
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | Yes | Friendly name, becomes tool prefix (e.g. `github`) |
-| `url` | string | Yes | MCP server SSE endpoint URL |
-| `enabled` | boolean | Yes | Set `true` to activate, `false` to disable |
-| `api_key_secret` | string | No | Secret Manager secret name for the API key |
-| `api_key_project_id` | string | No | GCP project where the secret lives (defaults to middleware project) |
-| `api_key_header` | string | No | Header name to send API key in (defaults to `X-API-Key`) |
+| `name` | string | Yes | Must match the Firestore document ID |
+| `transport` | string | No | `"sse"` (default), `"streamable_http"`, or `"stdio"` |
+| `enabled` | boolean | Yes | Set `true` to activate |
 
-### Example: Adding a public GitHub MCP server
+### HTTP transport fields (`sse`, `streamable_http`)
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `url` | string | Yes | Backing MCP server endpoint URL |
+| `api_key_secret` | string | No | Secret Manager secret name holding the backing server's API key |
+| `api_key_project_id` | string | No | Project where the secret lives (defaults to middleware project) |
+| `api_key_header` | string | No | Header to send the API key in (defaults to `X-API-Key`) |
+
+### stdio transport fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `command` | string | Yes | Must be `"npx"` or `"uvx"` (allowlist) |
+| `args` | list<string> | Yes | Arguments (e.g. `["-y", "@modelcontextprotocol/server-github"]`) |
+| `env` | map<string,string> | No | Literal environment variables for the subprocess |
+| `env_secrets` | map<string,string> | No | Env var name → Secret Manager secret name (resolved at call time) |
+
+**Security note:** the stdio `command` is restricted to an allowlist (`npx`, `uvx`) defined in [app/models/agent.py](../app/models/agent.py) to prevent arbitrary code execution via Firestore writes. The packages you run via those commands still execute arbitrary code, so treat the `mcp_servers` collection as sensitive.
+
+### Example: HTTP server with API key
 
 ```json
 {
-  "name": "github",
-  "url": "https://your-github-mcp-server.example.com/sse",
+  "name": "github-http",
+  "transport": "streamable_http",
   "enabled": true,
+  "url": "https://your-github-mcp.example.com/mcp",
   "api_key_secret": "github-mcp-api-key",
   "api_key_project_id": "your-middleware-project-id"
 }
 ```
 
-### Adding via gcloud (alternative)
+### Example: stdio server via npx
 
-```bash
-# Store the API key for a backing server
-echo -n "YOUR_BACKING_SERVER_API_KEY" | \
-  gcloud secrets versions add github-mcp-api-key \
-    --data-file=- \
-    --project=$MIDDLEWARE_PROJECT_ID
+```json
+{
+  "name": "github",
+  "transport": "stdio",
+  "enabled": true,
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-github"],
+  "env_secrets": {
+    "GITHUB_PERSONAL_ACCESS_TOKEN": "github-pat-secret"
+  }
+}
 ```
 
-Then write the Firestore document via the Firebase Admin SDK, Firebase Console, or a short Python script:
+### Example: stdio server via uvx
+
+```json
+{
+  "name": "time",
+  "transport": "stdio",
+  "enabled": true,
+  "command": "uvx",
+  "args": ["mcp-server-time", "--local-timezone=America/New_York"]
+}
+```
+
+### Writing the Firestore document
+
+Either via the Firebase Console (create a document in `mcp_servers` with the fields above) or via a small script:
 
 ```python
 from google.cloud import firestore
 db = firestore.Client(project="your-middleware-project-id")
 db.collection("mcp_servers").document("github").set({
     "name": "github",
-    "url": "https://your-github-mcp-server.example.com/sse",
+    "transport": "stdio",
     "enabled": True,
-    "api_key_secret": "github-mcp-api-key",
-    "api_key_project_id": "your-middleware-project-id",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "env_secrets": {"GITHUB_PERSONAL_ACCESS_TOKEN": "github-pat-secret"},
 })
+```
+
+For `env_secrets`, store the token in Secret Manager and grant the middleware's Cloud Run SA `secretAccessor`:
+
+```bash
+echo -n "ghp_YOUR_TOKEN" | \
+  gcloud secrets versions add github-pat-secret \
+    --data-file=- --project=$MIDDLEWARE_PROJECT_ID
+
+MIDDLEWARE_SA="$(gcloud projects describe $MIDDLEWARE_PROJECT_ID \
+  --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+
+gcloud secrets add-iam-policy-binding github-pat-secret \
+  --member="serviceAccount:${MIDDLEWARE_SA}" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project=$MIDDLEWARE_PROJECT_ID
 ```
 
 ---
 
 ## 5. Building a Custom MCP Server
 
-If you want to expose your own tools, you can build a custom MCP server and deploy it as a Cloud Run service.
+If you want to expose your own tools and the stdio packages don't cover them, you can build a custom MCP server.
 
-### Recommended approach: FastMCP
+### stdio (simplest — no infrastructure)
 
-[FastMCP](https://github.com/jlowin/fastmcp) is the simplest way to build Python MCP servers.
+Package your server for npm or PyPI, then reference it via `npx` or `uvx` in the Firestore config. No Cloud Run deployment needed.
 
-```bash
-pip install fastmcp
-```
-
-### Minimal example (`server.py`)
+Example using [FastMCP](https://github.com/jlowin/fastmcp) packaged for PyPI:
 
 ```python
-import os
+# my_tools/server.py
 from fastmcp import FastMCP
-
 mcp = FastMCP("my-tools")
-
-API_KEY = os.environ.get("MCP_API_KEY")
-
-@mcp.tool()
-def hello(name: str) -> str:
-    """Say hello to someone."""
-    return f"Hello, {name}!"
 
 @mcp.tool()
 def add(a: int, b: int) -> int:
@@ -182,72 +223,55 @@ def add(a: int, b: int) -> int:
     return a + b
 
 if __name__ == "__main__":
-    # Run as SSE server (for middleware compatibility)
+    mcp.run()  # stdio by default
+```
+
+Publish to PyPI as `my-mcp-tools`, then register:
+
+```json
+{
+  "name": "my-tools",
+  "transport": "stdio",
+  "enabled": true,
+  "command": "uvx",
+  "args": ["my-mcp-tools"]
+}
+```
+
+### HTTP (for long-running services with state)
+
+See [Section 6](#6-deploying-a-custom-http-server-to-cloud-run) for deployment.
+
+```python
+# server.py
+import os
+from fastmcp import FastMCP
+mcp = FastMCP("my-tools")
+
+@mcp.tool()
+def hello(name: str) -> str:
+    """Say hello."""
+    return f"Hello, {name}!"
+
+if __name__ == "__main__":
     mcp.run(transport="sse", host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 ```
 
-### Dockerfile
-
-```dockerfile
-FROM python:3.12-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY server.py .
-
-CMD ["python", "server.py"]
-```
-
-`requirements.txt`:
-```
-fastmcp>=0.4.0
-```
-
-### Adding API key authentication
-
-FastMCP does not handle auth natively — protect your server at the infrastructure level (Cloud Run IAM) or add middleware in your server:
-
-```python
-import os
-from fastmcp import FastMCP
-from fastmcp.server.middleware import Middleware
-from mcp.types import JSONRPCMessage
-
-mcp = FastMCP("my-tools")
-EXPECTED_KEY = os.environ.get("MCP_API_KEY", "")
-
-class ApiKeyMiddleware(Middleware):
-    async def on_message(self, message: JSONRPCMessage, call_next):
-        # Note: auth at HTTP layer is simpler — see Nginx/Cloud Run IAM approach
-        return await call_next(message)
-```
-
-The simplest production approach: keep Cloud Run public (unauthenticated), protect with an API key checked at the HTTP level. The middleware passes the API key via the header you specify in `api_key_header` (default: `X-API-Key`).
-
 ---
 
-## 6. Deploying a Custom Server to Cloud Run
+## 6. Deploying a Custom HTTP Server to Cloud Run
 
-The agent-project Terraform template includes a commented-out Section 5 for deploying a custom MCP server. You can also deploy directly:
-
-### Build and push the container image
+For HTTP-based custom servers (`transport: "sse"` or `"streamable_http"`), deploy to Cloud Run:
 
 ```bash
-export PROJECT_ID=your-agent-project-id
+export PROJECT_ID=your-project-id
 export SERVER_NAME=my-tools-mcp
 
-# Build and push using Cloud Build
 gcloud builds submit \
   --tag gcr.io/$PROJECT_ID/$SERVER_NAME:latest \
   --project=$PROJECT_ID \
   /path/to/your/mcp-server
-```
 
-### Deploy to Cloud Run
-
-```bash
 gcloud run deploy $SERVER_NAME \
   --image gcr.io/$PROJECT_ID/$SERVER_NAME:latest \
   --region us-central1 \
@@ -255,44 +279,18 @@ gcloud run deploy $SERVER_NAME \
   --set-env-vars MCP_API_KEY_SECRET=your-mcp-api-key-secret \
   --project=$PROJECT_ID
 
-# Get the URL
 export MCP_SERVER_URL=$(gcloud run services describe $SERVER_NAME \
-  --region us-central1 \
-  --format "value(status.url)" \
-  --project=$PROJECT_ID)
-
-echo "MCP server URL: $MCP_SERVER_URL/sse"
+  --region us-central1 --format 'value(status.url)' --project=$PROJECT_ID)
 ```
 
-### Generate and store an API key for the server
-
-```bash
-# Generate key
-openssl rand -base64 32 | tr -d '\n' | \
-  gcloud secrets versions add your-mcp-api-key-secret \
-    --data-file=- \
-    --project=$PROJECT_ID
-
-# Grant middleware SA access to read this secret
-MIDDLEWARE_PROJECT_NUMBER=$(gcloud projects describe $MIDDLEWARE_PROJECT_ID \
-  --format="value(projectNumber)")
-MIDDLEWARE_SA="${MIDDLEWARE_PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-
-gcloud secrets add-iam-policy-binding your-mcp-api-key-secret \
-  --member="serviceAccount:${MIDDLEWARE_SA}" \
-  --role="roles/secretmanager.secretAccessor" \
-  --project=$PROJECT_ID
-```
-
-### Register the server in Firestore
-
-Add it to the `mcp_servers` collection as described in [Section 4](#4-adding-global-mcp-servers-in-firestore):
+Generate an API key for the server and grant the middleware access (same pattern as stdio `env_secrets` above). Then register in Firestore:
 
 ```python
 db.collection("mcp_servers").document("my-tools").set({
     "name": "my-tools",
-    "url": f"{MCP_SERVER_URL}/sse",
+    "transport": "sse",
     "enabled": True,
+    "url": f"{MCP_SERVER_URL}/sse",
     "api_key_secret": "your-mcp-api-key-secret",
     "api_key_project_id": PROJECT_ID,
 })
@@ -302,25 +300,23 @@ db.collection("mcp_servers").document("my-tools").set({
 
 ## 7. Connecting Claude Code
 
-Add the middleware's global MCP endpoint as an MCP server in Claude Code.
+Each MCP server has its own URL and is added to Claude Code as a **separate** MCP server entry. All of them share the same `X-API-Key`.
 
-### Option A: Claude Code settings UI
-
-1. Open Claude Code settings (⚙️ or `claude config`)
-2. Navigate to MCP Servers
-3. Add a new server with:
-   - **Name**: `middleware` (or any name you prefer)
-   - **URL**: `{middleware_url}/api/v1/mcp`
-   - **Headers**: `X-API-Key: {your-api-key}`
-
-### Option B: `~/.claude/settings.json`
+### `~/.claude/settings.json`
 
 ```json
 {
   "mcpServers": {
-    "middleware": {
+    "github": {
       "type": "http",
-      "url": "https://YOUR_CLOUD_RUN_URL/api/v1/mcp",
+      "url": "https://YOUR_CLOUD_RUN_URL/api/v1/mcp/global/github",
+      "headers": {
+        "X-API-Key": "YOUR_API_KEY"
+      }
+    },
+    "time": {
+      "type": "http",
+      "url": "https://YOUR_CLOUD_RUN_URL/api/v1/mcp/global/time",
       "headers": {
         "X-API-Key": "YOUR_API_KEY"
       }
@@ -329,48 +325,38 @@ Add the middleware's global MCP endpoint as an MCP server in Claude Code.
 }
 ```
 
-Replace `YOUR_CLOUD_RUN_URL` with the Cloud Run service URL (from `terraform output cloud_run_url`) and `YOUR_API_KEY` with the value from [Section 3](#3-configuring-the-global-api-key).
+The `mcpServers` **key** (`"github"`, `"time"`) is how Claude Code labels the server locally — it doesn't have to match the Firestore name, but keeping them in sync reduces confusion. The **URL path segment** (`/global/github`, `/global/time`) is what must match the Firestore document ID.
 
-After saving, restart Claude Code. The connected MCP tools will appear in the tool picker.
+After saving, restart Claude Code.
 
 ---
 
 ## 8. Verifying with mcp-inspector
 
-[mcp-inspector](https://github.com/modelcontextprotocol/inspector) is a CLI tool for testing MCP endpoints.
-
 ```bash
 npx @modelcontextprotocol/inspector
 ```
 
-When prompted, enter:
+Enter:
 - **Transport type**: `Streamable HTTP`
-- **URL**: `https://YOUR_CLOUD_RUN_URL/api/v1/mcp`
+- **URL**: `https://YOUR_CLOUD_RUN_URL/api/v1/mcp/global/{server_name}`
 - **Headers**: `X-API-Key: YOUR_API_KEY`
 
-You should see:
-- A list of all available tools, prefixed by server name
-- The ability to call individual tools and see their responses
-
-If tools from a specific backing server don't appear, check:
-1. The server document in Firestore has `enabled: true`
-2. The `url` points to a working SSE endpoint (accessible from Cloud Run)
-3. The `api_key_secret` exists and the middleware SA has `secretAccessor` access
+You should see all tools from that one backing server. If nothing appears, check:
+1. The Firestore document exists and `enabled: true`
+2. The document ID matches `{server_name}` in the URL
+3. For stdio: the `command` is `npx` or `uvx`, and the package runs successfully locally
+4. For stdio: the Cloud Run instance has enough memory — npm package installs can hit OOM
 
 ---
 
-## 9. Tool Naming Conventions
+## 9. Transports and Tool Naming
 
-The middleware prefixes tool names to prevent collisions when aggregating from multiple backing servers:
+**Global per-server endpoints** expose the backing server's tools **unprefixed**. If your backing server has a `create_issue` tool, Claude Code sees it as `create_issue`. Naming collisions across servers are avoided naturally because each server has its own URL.
 
-| Source | Tool prefix format | Example |
-|--------|-------------------|---------|
-| Global-only server | `{server_name}__{tool_name}` | `github__create_issue` |
-| Agent-specific server | `{agent_id}__{server_name}__{tool_name}` | `growthcoach__calendar__list_events` |
+**Agent-scoped endpoints** (`/api/v1/mcp/{agent_id}`) still aggregate and prefix: a tool from backing server `"github"` becomes `"github__create_issue"` on that agent's MCP surface. This is unchanged and lets ADK agents point their single `MCPToolset` at one URL that exposes all their tools.
 
-The double underscore (`__`) is the separator. When the middleware routes a tool call, it parses the prefix to determine which backing server to forward the call to.
-
-**Naming tips:**
-- Keep server names short and lowercase (e.g., `github`, `gdrive`, `mytools`)
-- Avoid underscores in server names to prevent ambiguous prefix parsing
-- Server names must be unique within the set of servers visible to an endpoint
+**Transport-specific notes:**
+- **stdio cold start** can add 5-10 seconds on first call while `npx` fetches the package. Cloud Run's instance lifecycle means this recurs after scale-to-zero.
+- **Streamable HTTP** works correctly with multi-instance Cloud Run (stateless per-request).
+- **SSE** stores session state in process memory; if Cloud Run routes GET /sse and POST /messages to different instances, sessions break. Prefer Streamable HTTP for production.

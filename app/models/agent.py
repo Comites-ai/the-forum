@@ -1,13 +1,33 @@
 """Agent configuration model."""
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
+# stdio commands permitted when transport="stdio".  Restricting these prevents
+# arbitrary code execution via Firestore writes.  See docs/USING_MCP_SERVER.md.
+ALLOWED_STDIO_COMMANDS = frozenset({"npx", "uvx"})
+
+
 class MCPServerConfig(BaseModel):
-    """Configuration for an MCP server backing this agent."""
+    """Configuration for an MCP server backing this agent.
+
+    Three transports are supported:
+      - 'sse'             (legacy MCP SSE transport, e.g. classic FastMCP servers)
+      - 'streamable_http' (MCP spec 2025-03-26)
+      - 'stdio'           (subprocess over stdin/stdout — command allowlisted)
+    """
     name: str = Field(..., description="Friendly name, used as tool prefix (e.g. 'github')")
-    url: str = Field(..., description="MCP server SSE endpoint URL (e.g. 'https://server.run.app/sse')")
+    transport: Literal["sse", "streamable_http", "stdio"] = Field(
+        default="sse",
+        description="MCP transport: 'sse', 'streamable_http', or 'stdio'"
+    )
     enabled: bool = Field(default=True)
+
+    # HTTP-based transport fields ('sse', 'streamable_http')
+    url: Optional[str] = Field(
+        default=None,
+        description="MCP server endpoint URL (required for 'sse' and 'streamable_http')"
+    )
     api_key_secret: Optional[str] = Field(
         default=None,
         description="Secret Manager secret name for the API key sent to this server"
@@ -20,6 +40,39 @@ class MCPServerConfig(BaseModel):
         default="X-API-Key",
         description="HTTP header name used to send the API key to the backing server"
     )
+
+    # stdio transport fields
+    command: Optional[str] = Field(
+        default=None,
+        description=f"Executable for stdio transport; must be one of {sorted(ALLOWED_STDIO_COMMANDS)}"
+    )
+    args: Optional[list[str]] = Field(
+        default=None,
+        description="Arguments passed to the stdio command (e.g. ['-y', '@modelcontextprotocol/server-github'])"
+    )
+    env: Optional[dict[str, str]] = Field(
+        default=None,
+        description="Literal environment variables passed to the stdio subprocess"
+    )
+    env_secrets: Optional[dict[str, str]] = Field(
+        default=None,
+        description="Environment variables sourced from Secret Manager; map of ENV_VAR_NAME -> secret_name in api_key_project_id (or middleware project)"
+    )
+
+    @model_validator(mode="after")
+    def _validate_transport_fields(self):
+        if self.transport in ("sse", "streamable_http"):
+            if not self.url:
+                raise ValueError(f"transport={self.transport!r} requires 'url'")
+        elif self.transport == "stdio":
+            if not self.command:
+                raise ValueError("transport='stdio' requires 'command'")
+            if self.command not in ALLOWED_STDIO_COMMANDS:
+                raise ValueError(
+                    f"stdio command {self.command!r} is not allowed; "
+                    f"permitted commands: {sorted(ALLOWED_STDIO_COMMANDS)}"
+                )
+        return self
 
 
 class AgentPlatformConfig(BaseModel):
