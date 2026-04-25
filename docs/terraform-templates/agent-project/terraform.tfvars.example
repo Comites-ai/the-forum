@@ -17,7 +17,7 @@ bot_name         = "My Agent"                   # Display name (all platforms)
 bot_account_id   = "my-agent"                   # lowercase, hyphens only, max 30 chars
                                                 # Used for: service accounts, secret names
                                                 # Examples:
-                                                #   - my-agent-apis@PROJECT.iam.gserviceaccount.com
+                                                #   - my-agent@PROJECT.iam.gserviceaccount.com  (the SA created by this template)
                                                 #   - my-agent-slack-token (Secret Manager)
                                                 #   - my-agent-telegram-token (Secret Manager)
 

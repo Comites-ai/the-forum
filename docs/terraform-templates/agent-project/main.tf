@@ -82,13 +82,15 @@ resource "google_project_service" "docs" {
   disable_on_destroy = false
 }
 
-# Service Account for Google APIs (Drive, Sheets, Docs, etc.)
-# This SA will be used by your agent to access Google Drive and Sheets
-resource "google_service_account" "agent_apis" {
+# Service Account for the agent.
+# A single SA is used for everything: Google APIs (Drive/Sheets/Docs) and,
+# when Google Chat is enabled, sending Chat messages. Share your spreadsheets
+# and docs with this SA's email; its key is what gets stored in Secret Manager.
+resource "google_service_account" "agent" {
   project      = google_project.agent_project.project_id
-  account_id   = "${var.bot_account_id}-apis"
-  display_name = "${var.bot_name} Google APIs"
-  description  = "Service account for ${var.bot_name} to access Google APIs (Drive, Sheets, etc.)"
+  account_id   = var.bot_account_id
+  display_name = var.bot_name
+  description  = "Service account for ${var.bot_name} (Google APIs + platform integrations)"
 
   depends_on = [
     google_project_service.drive,
@@ -178,27 +180,17 @@ resource "google_storage_bucket" "staging" {
 #   disable_on_destroy = false
 # }
 
-# # Service Account for Google Chat bot
-# # This SA will be used for Google Chat API calls (sending messages)
-# resource "google_service_account" "chat_bot" {
-#   project      = google_project.agent_project.project_id
-#   account_id   = var.bot_account_id
-#   display_name = var.bot_name
-#   description  = "Service account for ${var.bot_name} Google Chat bot"
-#
-#   depends_on = [
-#     google_project_service.chat
-#   ]
-# }
-
-# # Grant Google Chat bot permissions
+# # Grant the agent SA permission to send Google Chat messages.
+# # We reuse google_service_account.agent (created in Section 1) — the same SA
+# # is used for both Google APIs (Sheets/Docs) and Google Chat.
 # resource "google_project_iam_member" "chat_owner" {
 #   project = google_project.agent_project.project_id
 #   role    = "roles/chat.owner"
-#   member  = "serviceAccount:${google_service_account.chat_bot.email}"
+#   member  = "serviceAccount:${google_service_account.agent.email}"
 # }
 
-# # Store Google Chat service account credentials in Secret Manager
+# # Store the agent SA's key in Secret Manager so the middleware can read it
+# # to authenticate Google Chat API calls.
 # resource "google_secret_manager_secret" "chat_credentials" {
 #   project   = google_project.agent_project.project_id
 #   secret_id = var.secret_name
@@ -353,21 +345,15 @@ output "project_id" {
   value       = var.project_id
 }
 
-output "apis_service_account_email" {
-  description = "Service account email for Google APIs (Drive, Sheets) - share your Google Docs with this"
-  value       = google_service_account.agent_apis.email
+output "service_account_email" {
+  description = "Service account email for the agent — share Google Sheets/Drive/Docs with this email; also used for Google Chat when enabled"
+  value       = google_service_account.agent.email
 }
 
 output "staging_bucket" {
   description = "GCS bucket for ADK deployment staging"
   value       = google_storage_bucket.staging.name
 }
-
-# Uncomment if using Google Chat
-# output "chat_service_account_email" {
-#   description = "Service account email for Google Chat bot"
-#   value       = google_service_account.chat_bot.email
-# }
 
 output "next_steps" {
   description = "Instructions for completing the setup"
@@ -418,9 +404,10 @@ SECTION 2: SLACK SETUP (If using Slack)
 
 SECTION 3: GOOGLE CHAT SETUP (If using Google Chat)
 
-3a. Create a service account key:
+3a. Create a service account key for the agent SA (the same SA from Section 1
+    — used for Sheets/Docs and, with this section enabled, Google Chat):
     gcloud iam service-accounts keys create ${var.bot_account_id}-sa-key.json \
-      --iam-account=SERVICE_ACCOUNT_EMAIL_FROM_OUTPUT \
+      --iam-account=${google_service_account.agent.email} \
       --project=${var.project_id}
 
 3b. Store the key in YOUR AGENT'S project Secret Manager (NOT middleware):
@@ -540,14 +527,17 @@ SECTION 5: CUSTOM MCP SERVER SETUP (If using a custom MCP server)
 
 SECTION 6: GOOGLE APIS SETUP (Share Google Drive/Sheets)
 
-6a. Share Google Sheets/Drive files with the Google APIs service account:
-    Service Account Email: ${google_service_account.agent_apis.email}
+6a. Share Google Sheets/Drive/Docs files with the agent's service account:
+    Service Account Email: ${google_service_account.agent.email}
 
     Instructions:
-    - Open your Google Sheet or Drive file
+    - Open your Google Sheet, Drive file, or Doc
     - Click "Share"
     - Add the service account email above
     - Give it "Editor" or "Viewer" access (depending on agent needs)
+
+    Note: this is the same SA that signs Google Chat messages (when Section 3
+    is enabled). One SA, one key in Secret Manager, used for both.
 
 ====================================================
 

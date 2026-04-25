@@ -31,9 +31,7 @@ For agents that need dedicated infrastructure, this creates:
 For agents that need dedicated infrastructure:
 - New GCP project
 - Required APIs enabled (customizable per agent)
-- Service accounts for the agent with necessary permissions:
-  - Google APIs SA (for Drive, Sheets, Docs access)
-  - Platform bot SA (for Google Chat)
+- A single service account for the agent — used for both Google APIs (Drive/Sheets/Docs) and, when Google Chat is enabled, signing Chat messages
 - Organization policy override to allow service account key creation
 - Staging bucket for ADK deployments
 - Secrets for platform credentials (Slack, Telegram, Google Chat)
@@ -101,12 +99,12 @@ After `terraform apply` completes, follow the "next_steps" output instructions:
 
 ```bash
 # Get the service account email from terraform output
-export CHAT_SA_EMAIL=$(terraform output -raw chat_service_account_email)
+export AGENT_SA_EMAIL=$(terraform output -raw service_account_email)
 export PROJECT_ID=$(terraform output -raw project_id)
 
-# Create the key
+# Create the key (this same SA is also what your spreadsheets are shared with)
 gcloud iam service-accounts keys create ${PROJECT_ID}-sa-key.json \
-  --iam-account=$CHAT_SA_EMAIL \
+  --iam-account=$AGENT_SA_EMAIL \
   --project=$PROJECT_ID
 ```
 
@@ -309,19 +307,14 @@ See [USING_MCP_SERVER.md](../USING_MCP_SERVER.md) for full details on building c
 
 ## Important Notes
 
-### Two Service Accounts
+### One Service Account for Everything
 
-This setup typically creates **two separate service accounts**:
+This template creates a single service account, `your-agent@PROJECT.iam.gserviceaccount.com`, that does double duty:
 
-1. **`your-agent-apis@...`** (Google APIs SA)
-   - Used by your agent's Reasoning Engine to access Google Drive, Sheets, etc.
-   - **Share your Google Sheets/Drive files with this SA**
-   - No key needed (Vertex AI uses Workload Identity)
+- **Google APIs (Drive, Sheets, Docs)** — share your spreadsheets and docs with this SA's email so the agent can read/write them.
+- **Google Chat (when Section 3 is enabled)** — `roles/chat.owner` is granted to the same SA, and its key is stored in Secret Manager so the middleware can sign outbound Chat messages on the bot's behalf.
 
-2. **`your-agent@...`** (Platform bot SA)
-   - Used by the middleware to send messages to Google Chat
-   - Key stored in Secret Manager for middleware to use
-   - **Do NOT share Sheets with this SA**
+One SA, one key, one email to share files with. (Earlier versions of this template provisioned two SAs — a `*-apis` SA for Drive/Sheets and a separate chat-bot SA. We collapsed them after realizing the split added confusion without meaningful isolation: both SAs lived in the same project with similar permissions, and the chat-bot SA's key was already in Secret Manager.)
 
 ### Secret Location
 
