@@ -46,7 +46,7 @@ class ScheduledJobExecutorV2:
         1. Acquire execution lock (Firestore transaction)
         2. Verify job is enabled
         3. Get agent configuration
-        4. Resolve user (handle backward compat with slack_user_id)
+        4. Resolve platform-specific recipient ID for the user
         5. Get or create Vertex AI session
         6. Send prompt to agent
         7. Send response to user via appropriate platform
@@ -95,23 +95,13 @@ class ScheduledJobExecutorV2:
                 )
                 return False
 
-            # Step 4: Resolve user (handle backward compatibility)
-            user_id = await self._resolve_user_id(job)
-            if not user_id:
-                error_msg = "Could not resolve user_id for job"
-                logger.error(error_msg)
-                await self.firestore.release_job_execution_lock(
-                    job_id, success=False, error=error_msg
-                )
-                return False
-
-            # Step 5: Get platform-specific recipient ID
+            # Step 4: Get platform-specific recipient ID
             recipient_id = await self.identity.get_platform_identity(
-                user_id=user_id,
+                user_id=job.user_id,
                 platform=job.output_platform
             )
             if not recipient_id:
-                error_msg = f"User {user_id} has no {job.output_platform} identity"
+                error_msg = f"User {job.user_id} has no {job.output_platform} identity"
                 logger.error(error_msg)
                 await self.firestore.release_job_execution_lock(
                     job_id, success=False, error=error_msg
@@ -134,7 +124,7 @@ class ScheduledJobExecutorV2:
 
             # Step 8: Get existing session or create new one
             session_id = await self._get_or_create_session(
-                user_id=user_id,
+                user_id=job.user_id,
                 agent_id=job.agent_id,
                 vertex_ai_agent_id=agent.vertex_ai_agent_id,
                 platform=job.output_platform
@@ -208,44 +198,6 @@ class ScheduledJobExecutorV2:
                 )
 
             return False
-
-    async def _resolve_user_id(self, job) -> Optional[str]:
-        """
-        Resolve user_id from job, handling backward compatibility.
-
-        Args:
-            job: ScheduledJob instance
-
-        Returns:
-            Unified user ID, or None if cannot be resolved
-        """
-        # New jobs have user_id directly
-        if job.user_id:
-            return job.user_id
-
-        # Legacy jobs have slack_user_id - need to look up user
-        if job.slack_user_id:
-            # Look up user by Slack identity
-            user = await self.firestore.get_user_by_identity(
-                platform="slack",
-                platform_user_id=job.slack_user_id
-            )
-            if user:
-                return user.id
-
-            # If no user found, create one (for backward compat)
-            logger.warning(
-                f"Job {job.id} uses legacy slack_user_id {job.slack_user_id} "
-                f"but no User exists. Creating user automatically."
-            )
-            user = await self.identity.resolve_user(
-                platform="slack",
-                platform_user_id=job.slack_user_id,
-                display_name=job.slack_user_id
-            )
-            return user.id
-
-        return None
 
     async def _create_connector(
         self,
@@ -401,14 +353,9 @@ class ScheduledJobExecutorV2:
             if not agent:
                 return {"success": False, "error": f"Agent {job.agent_id} not found"}
 
-            # Resolve user ID
-            user_id = await self._resolve_user_id(job)
-            if not user_id:
-                return {"success": False, "error": "Could not resolve user_id"}
-
             # Get platform-specific recipient ID
             recipient_id = await self.identity.get_platform_identity(
-                user_id=user_id,
+                user_id=job.user_id,
                 platform=job.output_platform
             )
             if not recipient_id:
