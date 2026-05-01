@@ -9,7 +9,6 @@ FastAPI middleware service that routes messages from **Slack**, **Google Chat**,
 - **Cross-Platform Sessions**: Continue conversations across Slack, Google Chat, and Telegram
 - **Session Management**: Automatic session tracking per user+agent combination
 - **Scheduled Jobs**: Proactive agent-initiated messages with rate limiting
-- **MCP Server Support**: Per-agent MCP tool proxy that aggregates multiple backing servers into one endpoint, plus per-server global URLs for Claude Code and other owner tools. Supports `stdio` (npx/uvx), `streamable_http`, and `sse` transports.
 - **Async Processing**: Responds within 3 seconds, processes in background
 - **Infrastructure as Code**: Complete Terraform configuration
 - **Secure**: Request signature verification, Secret Manager integration
@@ -38,33 +37,6 @@ BackgroundTask:
   └─ Post response via platform connector
 ```
 
-### MCP Tool Proxy
-
-Two access modes:
-
-```
-Agent-scoped (aggregated)                Per-server global (one URL per server)
-─────────────────────────                ─────────────────────────────────────
-ADK Agent                                Claude Code / owner tools
-  └── MCPToolset(url=                      ├── github  → .../mcp/global/github
-      "{middleware}/api/v1/mcp/            ├── time    → .../mcp/global/time
-       {agent_id}/sse")                    └── ...     (shared X-API-Key)
-
-       ▼                                        ▼
-Middleware aggregator                    Middleware per-server proxy
- (tool names prefixed                     (tool names unprefixed,
-  as 'server__tool')                       one backing server per URL)
-
-       │                                        │
-       ▼                                        ▼
-   Backing MCP servers (three transports)
-   ├── stdio            (npx/uvx subprocess — ecosystem packages)
-   ├── streamable_http  (MCP spec 2025-03-26)
-   └── sse              (legacy)
-```
-
-Global MCP servers live in the top-level `mcp_servers` Firestore collection; the URL path matches the document ID. Agent-scoped servers live on each agent's Firestore record. See [docs/USING_MCP_SERVER.md](docs/USING_MCP_SERVER.md) for owner setup and [docs/FOR_AGENT_DEVELOPERS.md](docs/FOR_AGENT_DEVELOPERS.md#using-mcp-servers-with-your-agent) for agent setup.
-
 ### Platform Connectors
 
 The middleware uses a unified `PlatformConnector` interface:
@@ -88,7 +60,6 @@ All platform-specific logic is isolated in connectors, making it easy to add new
 - **Secrets**: Google Cloud Secret Manager
 - **Storage**: Google Cloud Storage (temporary file uploads)
 - **Scheduling**: Google Cloud Scheduler (cron-based job dispatcher)
-- **MCP**: `mcp` Python SDK (Streamable HTTP, SSE, and stdio transports); `node`/`npx` + `uv`/`uvx` baked into the container image for stdio subprocess MCP servers
 - **Local Dev**: ngrok for tunneling
 
 ## Prerequisites
@@ -645,11 +616,8 @@ Using Telegram as the reference implementation:
 
 ### Platform Integration
 - [Slack Setup Guide](docs/SLACK_SETUP.md) - Detailed Slack app creation
-- **[For Agent Developers](docs/FOR_AGENT_DEVELOPERS.md)** - Complete guide for deploying agents (Slack + Google Chat + MCP)
+- **[For Agent Developers](docs/FOR_AGENT_DEVELOPERS.md)** - Complete guide for deploying agents (Slack + Google Chat + Telegram)
   - Copy this to your agent repository for easy reference
-
-### MCP Integration
-- **[Using the MCP Server](docs/USING_MCP_SERVER.md)** - Global/owner MCP endpoint: adding servers, building custom ones, connecting Claude Code
 
 ### Development & Operations
 - [Agent Deployment](docs/AGENT_DEPLOYMENT.md) - How to deploy/update agents

@@ -49,16 +49,6 @@ class Settings(BaseSettings):
         """Check if GCS file upload is configured."""
         return bool(self.gcs_bucket_name)
 
-    # MCP Configuration
-    # Secret Manager secret name for the global MCP endpoint API key.
-    # When set, enables the authenticated /api/v1/mcp endpoint for Claude Code / owner use.
-    mcp_global_api_key_secret: str = ""
-
-    @property
-    def mcp_global_enabled(self) -> bool:
-        """Check if the global MCP endpoint is configured."""
-        return bool(self.mcp_global_api_key_secret)
-
     # API settings
     api_v1_prefix: str = "/api/v1"
 

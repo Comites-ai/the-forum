@@ -32,7 +32,7 @@ The template handles both the new `platforms` array structure and legacy fields 
 8. [Setting Up GCS for Image Storage](#setting-up-gcs-for-image-storage)
 9. [Building Scheduled Job Tools](#building-scheduled-job-tools)
 10. [Linking Platform Identities](#linking-platform-identities)
-11. [Using MCP Servers with Your Agent](#using-mcp-servers-with-your-agent)
+11. [Adding MCP Servers to Your Agent (ADK-native)](#adding-mcp-servers-to-your-agent-adk-native)
 
 ---
 
@@ -1859,161 +1859,94 @@ If you need to unlink an identity (rare), edit the user document in Firestore:
 
 ---
 
-## Using MCP Servers with Your Agent
+## Adding MCP Servers to Your Agent (ADK-native)
 
-The middleware acts as an MCP aggregation proxy: it connects to one or more backing MCP servers on behalf of your Vertex AI agent, combining their tools into a single endpoint.  Your agent code configures `MCPToolset` to point at the middleware, and the middleware handles the routing.
+The middleware **does not proxy MCP servers**. Each agent integrates MCP servers directly via ADK's `MCPToolset`, owning the connection in its own Reasoning Engine container. This keeps the middleware focused on identity, delivery, and scheduling — not tool routing.
 
-### What this enables
+### Why agent-side MCP
 
-- Add any MCP-compatible tool server to your agent without changing the middleware deployment
-- Mix existing public MCP servers with custom ones you deploy yourself
-- Only servers you explicitly configure are accessible — no accidental tool leakage between agents
+- **No middleware changes needed** to add tools — agents own their toolchain end-to-end.
+- **Per-user credentials** are easier to handle in agent code, where you already have the user's identity.
+- **Failure isolation**: a flaky MCP server only impacts that one agent, not the whole platform.
+- **Aligned with ADK design**: `MCPToolset` is a first-class ADK primitive.
 
-### Step 1: Configure MCP server(s) in Firestore
+### stdio transport (most ecosystem servers)
 
-In the Firebase console, open your agent document (`agents/{agent_id}`) and add an `mcp_servers` array field.  Each entry describes one backing server and picks a transport.
+Most public MCP servers ship as `npx` (Node) or `uvx` (Python) packages. ADK launches them as subprocesses inside your Reasoning Engine container.
 
-**Common fields (all transports):**
+```python
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
+from mcp import StdioServerParameters
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | ✅ | Short identifier used as tool prefix (e.g. `"github"`) |
-| `transport` | — | `"sse"` (default), `"streamable_http"`, or `"stdio"` |
-| `enabled` | — | `true` (default) or `false` to temporarily disable |
+github_toolset = MCPToolset(
+    connection_params=StdioServerParameters(
+        command="npx",
+        args=["-y", "@modelcontextprotocol/server-github"],
+        env={"GITHUB_PERSONAL_ACCESS_TOKEN": os.environ["GITHUB_PAT"]},
+    ),
+)
 
-**HTTP transport fields (`sse`, `streamable_http`):**
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `url` | ✅ | Full endpoint URL of the backing MCP server |
-| `api_key_secret` | — | Secret Manager secret name for the server's API key |
-| `api_key_project_id` | — | GCP project where that secret lives (defaults to middleware project) |
-| `api_key_header` | — | Header name to send the key in (default: `"X-API-Key"`) |
-
-**stdio transport fields:**
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `command` | ✅ | Must be `"npx"` or `"uvx"` — other commands are rejected by the allowlist |
-| `args` | ✅ | Arguments passed to the command (e.g. `["-y", "@modelcontextprotocol/server-github"]`) |
-| `env` | — | Literal env vars for the subprocess |
-| `env_secrets` | — | Map of env var name → Secret Manager secret name (resolved at call time) |
-
-Example (HTTP server with API key):
-```json
-{
-  "mcp_servers": [
-    {
-      "name": "github",
-      "transport": "streamable_http",
-      "enabled": true,
-      "url": "https://github-mcp.example.com/mcp",
-      "api_key_secret": "github-mcp-api-key",
-      "api_key_project_id": "my-agent-project"
-    }
-  ]
-}
+root_agent = LlmAgent(
+    model="gemini-2.0-flash",
+    tools=[github_toolset, ...],
+)
 ```
 
-Example (stdio server via `npx`):
-```json
-{
-  "mcp_servers": [
-    {
-      "name": "github",
-      "transport": "stdio",
-      "enabled": true,
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env_secrets": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "github-pat-secret"
-      }
-    }
-  ]
-}
-```
+**Runtime requirements for stdio:**
+- `uvx` (Python packages) — install via your agent's `requirements.txt` (`uv` package).
+- `npx` (Node packages) — Node.js must be in the Reasoning Engine container. The default Vertex AI Agent Engine Python runtime does **not** ship Node by default; verify with a smoke test before committing to a Node-based MCP server, or pick a `uvx` equivalent.
+- First-call cost: 5-10 seconds while the package is fetched and the subprocess starts. Subsequent calls in the same container instance are fast.
 
-**stdio note:** Most MCP ecosystem packages (e.g. `@modelcontextprotocol/server-*`, `mcp-server-*`) ship as stdio and this is the lowest-infrastructure way to add them — no Cloud Run deployment, just a Firestore entry.  Cold-start cost is 5–10 seconds on first call while `npx`/`uvx` fetches the package.  Only `npx` and `uvx` are accepted as commands.
+### Streamable HTTP / SSE transport (hosted MCP servers)
 
-### Step 2: Store secrets in Secret Manager (if needed)
-
-For HTTP transports, `api_key_secret` names the secret.  For stdio transports, each entry in `env_secrets` names a secret whose value becomes an environment variable in the subprocess.  Both are stored and granted the same way:
-
-```bash
-export AGENT_PROJECT="my-agent-project"
-
-# HTTP transport: store the backing server's API key
-echo -n "YOUR_MCP_SERVER_API_KEY" | gcloud secrets versions add github-mcp-api-key \
-  --data-file=- --project=$AGENT_PROJECT
-
-# stdio transport: store any token the subprocess needs (e.g. GITHUB_PERSONAL_ACCESS_TOKEN)
-echo -n "ghp_YOUR_GITHUB_TOKEN" | gcloud secrets versions add github-pat-secret \
-  --data-file=- --project=$AGENT_PROJECT
-
-# Grant middleware access to whichever secrets you created
-export MIDDLEWARE_PROJECT_ID="your-middleware-project"
-export MIDDLEWARE_PROJECT_NUMBER=$(gcloud projects describe $MIDDLEWARE_PROJECT_ID --format="value(projectNumber)")
-export MIDDLEWARE_SA="${MIDDLEWARE_PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-
-for secret in github-mcp-api-key github-pat-secret; do
-  gcloud secrets add-iam-policy-binding $secret \
-    --member="serviceAccount:${MIDDLEWARE_SA}" \
-    --role="roles/secretmanager.secretAccessor" \
-    --project=$AGENT_PROJECT 2>/dev/null || true
-done
-```
-
-### Step 3: Configure your ADK agent to use the middleware MCP endpoint
-
-In your agent code, add `MCPToolset` pointing at the middleware SSE endpoint for your agent:
+If the MCP server runs as its own HTTP service (third-party hosted, or one you deploy yourself), use the HTTP transport:
 
 ```python
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseServerParams
 
-MIDDLEWARE_URL = "https://YOUR_MIDDLEWARE_URL"
-AGENT_FIRESTORE_ID = "YOUR_AGENT_DOCUMENT_ID"  # The Firestore doc ID, not the Vertex AI ID
-
-mcp_toolset = MCPToolset(
+my_tools = MCPToolset(
     connection_params=SseServerParams(
-        url=f"{MIDDLEWARE_URL}/api/v1/mcp/{AGENT_FIRESTORE_ID}/sse"
-    )
-)
-
-# Add to your agent's tools list
-root_agent = LlmAgent(
-    model="gemini-2.0-flash",
-    tools=[
-        mcp_toolset,
-        # ... your other tools
-    ]
+        url="https://your-mcp-server.example.com/sse",
+        headers={"X-API-Key": os.environ["MY_MCP_API_KEY"]},
+    ),
 )
 ```
 
-The middleware exposes **two endpoints** per agent:
+For Streamable HTTP (the modern MCP spec, recommended over SSE for new servers), use the equivalent `StreamableHTTPServerParams` from your ADK / `mcp` SDK version.
 
-| Endpoint | Transport | Best for |
-|----------|-----------|----------|
-| `/api/v1/mcp/{agent_id}/sse` | Legacy SSE | ADK `MCPToolset` (current ADK versions) |
-| `/api/v1/mcp/{agent_id}` | Streamable HTTP (MCP 2025-03-26) | Modern MCP clients |
+### Credentials
 
-**Tool naming**: Tools from your backing server are prefixed with the server `name` to prevent collisions.  A tool called `create_issue` on the `github` server appears as `github__create_issue` in your agent.
+Agents own their secrets — store them in Secret Manager in your agent's project and inject at deploy time. The middleware no longer needs to read your MCP credentials.
 
-### Step 4: Deploy a custom MCP server (optional)
+```bash
+# Store the secret in your agent's project
+echo -n "ghp_YOUR_TOKEN" | gcloud secrets versions add github-pat \
+  --data-file=- --project=$AGENT_PROJECT
 
-If you want to write your own MCP server instead of (or in addition to) using an existing one:
+# Grant your agent's Reasoning Engine service account access
+gcloud secrets add-iam-policy-binding github-pat \
+  --member="serviceAccount:${AGENT_RE_SA}" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project=$AGENT_PROJECT
+```
 
-1. **Build the server** — see `docs/USING_MCP_SERVER.md` for a Python + FastMCP example
-2. **Deploy it as a Cloud Run service** — uncomment Section 5 in your agent's `terraform/main.tf` and run `terraform apply`
-3. **Register it** in Firestore following Step 1 above, using the Cloud Run URL as `url`
+In your agent code, fetch from Secret Manager at startup (or use a runtime injection mechanism) and pass into `StdioServerParameters`.
+
+### Per-user credentials
+
+If the MCP server needs user-specific credentials (Garmin, Gmail, Calendar, etc.), instantiate the toolset **per request** using the calling user's stored credentials, rather than a process-wide token. The middleware passes the user's identity in the message prefix (`[From: Name | platform_id: ...]`); your agent uses that to look up the right credential before constructing the toolset.
 
 ### Verification
 
-Use [mcp-inspector](https://github.com/modelcontextprotocol/inspector) to verify tools are available before deploying your agent:
+Test your MCP integration locally with [`mcp-inspector`](https://github.com/modelcontextprotocol/inspector) before deploying:
 
 ```bash
+# stdio
 npx @modelcontextprotocol/inspector \
-  sse \
-  https://YOUR_MIDDLEWARE_URL/api/v1/mcp/YOUR_AGENT_ID/sse
-```
+  npx -y @modelcontextprotocol/server-github
 
-You should see your tools listed with the `servername__toolname` prefix.
+# HTTP
+npx @modelcontextprotocol/inspector \
+  sse https://your-mcp-server.example.com/sse
+```

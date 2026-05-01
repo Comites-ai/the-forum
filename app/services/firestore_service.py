@@ -6,7 +6,7 @@ from typing import List, Optional
 from google.cloud.firestore import AsyncClient, FieldFilter, ArrayUnion
 
 from app.config import get_settings
-from app.models.agent import Agent, MCPServerConfig
+from app.models.agent import Agent
 from app.models.session import Session
 from app.models.scheduled_job import ScheduledJob
 from app.models.user import User, PlatformIdentity
@@ -778,56 +778,6 @@ class FirestoreService:
         except Exception as e:
             logger.error(f"Error creating session for user {user_id}/agent {agent_id}: {e}")
             raise
-
-    # MCP collection methods
-
-    async def get_global_mcp_servers(self) -> list[MCPServerConfig]:
-        """
-        Read all documents from the top-level `mcp_servers` Firestore collection.
-
-        These are global MCP servers not tied to any specific agent, managed
-        directly by the middleware owner via the Firebase console.
-
-        Returns:
-            List of enabled MCPServerConfig objects
-        """
-        servers: list[MCPServerConfig] = []
-        try:
-            async for doc in self.client.collection("mcp_servers").stream():
-                data = doc.to_dict()
-                try:
-                    config = MCPServerConfig(**data)
-                    if config.enabled:
-                        servers.append(config)
-                except Exception as validation_error:
-                    logger.warning(
-                        f"Skipping invalid MCP server config in mcp_servers/{doc.id}: "
-                        f"{validation_error}"
-                    )
-            logger.info(f"Loaded {len(servers)} global MCP servers")
-        except Exception as e:
-            logger.error(f"Error loading global MCP servers: {e}")
-        return servers
-
-    async def get_global_mcp_server_by_name(self, name: str) -> Optional[MCPServerConfig]:
-        """
-        Fetch a single global MCP server from the `mcp_servers` collection.
-
-        The collection document ID is expected to equal the server's `name`
-        field — return None if the document doesn't exist, the config fails
-        validation, or the server is disabled.
-        """
-        try:
-            doc = await self.client.collection("mcp_servers").document(name).get()
-            if not doc.exists:
-                return None
-            config = MCPServerConfig(**doc.to_dict())
-            if not config.enabled:
-                return None
-            return config
-        except Exception as e:
-            logger.error(f"Error loading global MCP server '{name}': {e}")
-            return None
 
     async def update_session_platforms(
         self, session_id: str, platform: str
