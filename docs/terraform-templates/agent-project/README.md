@@ -35,6 +35,7 @@ For agents that need dedicated infrastructure:
 - Organization policy override to allow service account key creation
 - Staging bucket for ADK deployments
 - Secrets for platform credentials (Slack, Telegram, Google Chat)
+- Optional: scheduler MCP API key secret + IAM binding so the agent's runtime SA can read it (Section 5)
 - Outputs with next steps for configuration
 
 ## Slack/Telegram-Only Agents

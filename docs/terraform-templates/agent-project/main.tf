@@ -228,6 +228,41 @@ resource "google_storage_bucket" "staging" {
 #   --data-file=- --project=${var.project_id}
 
 # ==============================================================================
+# SECTION 5: SCHEDULER MCP KEY (Uncomment to use the middleware's scheduler MCP)
+# Provisions the secret container that holds your agent's scheduler MCP API
+# key, plus an IAM binding so the agent's Reasoning Engine SA can read it at
+# runtime to send in the X-API-Key header. You still run the provision script
+# (in the middleware repo) to generate the actual key value and add it via
+# `gcloud secrets versions add` — secret values shouldn't live in terraform.
+# See FOR_AGENT_DEVELOPERS.md §9 for the end-to-end flow.
+# ==============================================================================
+
+# # Secret container for the scheduler MCP API key. Empty until you run the
+# # provision script and add the key value via gcloud secrets versions add.
+# resource "google_secret_manager_secret" "scheduler_mcp_key" {
+#   project   = google_project.agent_project.project_id
+#   secret_id = "${var.bot_account_id}-scheduler-mcp-key"
+#
+#   replication {
+#     auto {}
+#   }
+#
+#   depends_on = [
+#     google_project_service.secretmanager
+#   ]
+# }
+#
+# # Grant the AGENT'S default compute SA (which Vertex AI Reasoning Engine
+# # runs as by default) read access to the secret. If you deploy with a
+# # custom --service-account, replace the member below with that SA.
+# resource "google_secret_manager_secret_iam_member" "scheduler_mcp_key_agent_accessor" {
+#   project   = google_project.agent_project.project_id
+#   secret_id = google_secret_manager_secret.scheduler_mcp_key.secret_id
+#   role      = "roles/secretmanager.secretAccessor"
+#   member    = "serviceAccount:${google_project.agent_project.number}-compute@developer.gserviceaccount.com"
+# }
+
+# ==============================================================================
 # IAM BINDINGS - Grant middleware access to secrets
 # ==============================================================================
 
@@ -413,9 +448,31 @@ SECTION 4: TELEGRAM SETUP (If using Telegram)
 
 4e. Enable Telegram for your agent in middleware using Firestore console or script
 
-SECTION 5: GOOGLE APIS SETUP (Share Google Drive/Sheets)
+SECTION 5: SCHEDULER MCP SETUP (If using scheduled reminders)
 
-5a. Share Google Sheets/Drive/Docs files with the agent's service account:
+5a. Generate the API key and store its hash on the agent's Firestore doc.
+    Run from the middleware repo (NOT this agent repo):
+      cd /path/to/slack-vertex-ai-middleware
+      python scripts/provision_scheduler_api_key.py --agent-id YOUR_AGENT_FIRESTORE_ID
+
+    The script prints the plaintext key ONCE — copy it for 5b.
+
+5b. Add the plaintext key as a secret value (the empty container was
+    created by terraform; this populates it):
+      echo -n "PLAINTEXT_FROM_5a" | gcloud secrets versions add \
+        ${var.bot_account_id}-scheduler-mcp-key \
+        --data-file=- --project=${var.project_id}
+
+5c. Configure your ADK agent to read the key at startup and pass it to
+    MCPToolset(StreamableHTTPServerParams(headers={"X-API-Key": ...})).
+    See FOR_AGENT_DEVELOPERS.md §9 for the full ADK wiring example.
+
+    To rotate: re-run 5a (overwrites the hash in middleware Firestore),
+    then re-run 5b with the new plaintext.
+
+SECTION 6: GOOGLE APIS SETUP (Share Google Drive/Sheets)
+
+6a. Share Google Sheets/Drive/Docs files with the agent's service account:
     Service Account Email: ${google_service_account.agent.email}
 
     Instructions:

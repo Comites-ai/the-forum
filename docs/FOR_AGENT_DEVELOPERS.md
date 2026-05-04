@@ -30,10 +30,9 @@ The template handles both the new `platforms` array structure and legacy fields 
 6. [Quick Reference](#quick-reference)
 7. [Receiving Images from Slack](#receiving-images-from-slack)
 8. [Setting Up GCS for Image Storage](#setting-up-gcs-for-image-storage)
-9. [Building Scheduled Job Tools](#building-scheduled-job-tools)
+9. [Scheduler MCP Server](#scheduler-mcp-server)
 10. [Linking Platform Identities](#linking-platform-identities)
 11. [Adding MCP Servers to Your Agent (ADK-native)](#adding-mcp-servers-to-your-agent-adk-native)
-12. [Scheduler MCP Server](#scheduler-mcp-server)
 
 ---
 
@@ -1468,244 +1467,91 @@ GCS_FILE_PREFIX=slack-files
 
 ---
 
-## Building Scheduled Job Tools
+## Scheduler MCP Server
 
-Your agent can provide tools that allow users to manage their own scheduled jobs through the middleware API. This enables features like:
-- "Remind me every morning at 9 AM to review my goals"
-- "Show me my scheduled check-ins"
-- "Cancel my daily standup reminder"
+The middleware hosts a single MCP server — the scheduler — at:
 
-### Recommended Approach: Custom Functions Module
-
-**Best Practice**: Create a `custom_functions.py` module in your agent that wraps the scheduled jobs API. This approach:
-- ✅ Centralizes API logic and configuration
-- ✅ Provides clean function signatures for your agent
-- ✅ Makes it easy to update when the API changes
-- ✅ Keeps your agent code clean and maintainable
-
-See the [Growth Coach example](https://github.com/your-org/growth-coach-agent/blob/main/custom_functions.py) for a complete implementation.
-
-### Scheduled Jobs API
-
-The middleware exposes a REST API for managing scheduled jobs. Your agent calls these endpoints using HTTP requests.
-
-**Base URL**: `https://YOUR_MIDDLEWARE_URL/api/v1/scheduled-jobs`
-
-### API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/scheduled-jobs` | Create a new scheduled job |
-| `GET` | `/scheduled-jobs?user_id={user_id}` | List jobs for a user |
-| `GET` | `/scheduled-jobs/{job_id}` | Get a specific job |
-| `PATCH` | `/scheduled-jobs/{job_id}` | Update a job |
-| `DELETE` | `/scheduled-jobs/{job_id}` | Delete a job |
-
-### Data Model
-
-Each scheduled job has the following fields:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | Human-readable name (e.g., "Daily Goal Review") |
-| `prompt` | string | The message sent to the agent when the job runs |
-| `agent_id` | string | Your agent's Firestore document ID |
-| `user_id` | string | User ID from the users collection (platform-agnostic) |
-| `output_platform` | string | Platform to send to: "slack", "google_chat", or "telegram" |
-| `schedule` | string | Cron expression (e.g., "0 9 * * 1-5" for 9 AM weekdays) |
-| `timezone` | string | IANA timezone (e.g., "America/New_York") |
-| `enabled` | boolean | Whether the job is active |
-
-**Important**: The API now uses `user_id` (platform-agnostic) instead of `slack_user_id`. The middleware looks up the platform-specific identity when delivering messages.
-
-### Example: Custom Functions Module
-
-Create a `custom_functions.py` file in your agent repository:
-
-```python
-# custom_functions.py
-import requests
-import os
-from typing import List, Dict, Any, Optional
-
-def create_scheduled_reminder(
-    name: str,
-    prompt: str,
-    schedule: str,
-    timezone: str,
-    user_id: str,
-    output_platform: str = "slack"
-) -> Dict[str, Any]:
-    """
-    Create a scheduled reminder that messages the user on a recurring schedule.
-
-    Args:
-        name: Friendly name for this reminder (e.g., "Morning Goals Check-in")
-        prompt: The message that will be sent to start the conversation
-        schedule: Cron expression (e.g., "0 9 * * 1-5" for 9 AM weekdays)
-        timezone: IANA timezone (e.g., "America/New_York", "America/Los_Angeles")
-        user_id: The user's ID from the users collection (platform-specific ID is looked up)
-        output_platform: Platform to send responses to ("slack", "google_chat", or "telegram")
-
-    Returns:
-        The created job details including its ID
-    """
-    middleware_url = os.environ.get("MIDDLEWARE_URL")
-    agent_id = os.environ.get("YOUR_AGENT_ID")  # e.g., GROWTH_COACH_AGENT_ID
-
-    response = requests.post(
-        f"{middleware_url}/api/v1/scheduled-jobs",
-        json={
-            "name": name,
-            "prompt": prompt,
-            "agent_id": agent_id,
-            "user_id": user_id,
-            "output_platform": output_platform,
-            "schedule": schedule,
-            "timezone": timezone,
-            "enabled": True
-        },
-        timeout=30
-    )
-    response.raise_for_status()
-    return response.json()
-
-
-def list_scheduled_reminders(user_id: str) -> List[Dict[str, Any]]:
-    """
-    List all scheduled reminders for the user.
-
-    Args:
-        user_id: The user's ID from the users collection
-
-    Returns:
-        List of scheduled jobs with their details (id, name, schedule, etc.)
-    """
-    middleware_url = os.environ.get("MIDDLEWARE_URL")
-    agent_id = os.environ.get("YOUR_AGENT_ID")
-
-    response = requests.get(
-        f"{middleware_url}/api/v1/scheduled-jobs",
-        params={"user_id": user_id, "agent_id": agent_id},
-        timeout=30
-    )
-    response.raise_for_status()
-    return response.json().get("jobs", [])
-
-
-def update_scheduled_reminder(
-    job_id: str,
-    name: Optional[str] = None,
-    prompt: Optional[str] = None,
-    schedule: Optional[str] = None,
-    timezone: Optional[str] = None,
-    enabled: Optional[bool] = None
-) -> Dict[str, Any]:
-    """
-    Update an existing scheduled reminder.
-
-    Args:
-        job_id: The job ID (from list_scheduled_reminders)
-        name: New name (optional)
-        prompt: New prompt message (optional)
-        schedule: New cron schedule (optional)
-        timezone: New timezone (optional)
-        enabled: Enable/disable the job (optional)
-
-    Returns:
-        Updated job details
-    """
-    middleware_url = os.environ.get("MIDDLEWARE_URL")
-
-    updates = {}
-    if name is not None:
-        updates["name"] = name
-    if prompt is not None:
-        updates["prompt"] = prompt
-    if schedule is not None:
-        updates["schedule"] = schedule
-    if timezone is not None:
-        updates["timezone"] = timezone
-    if enabled is not None:
-        updates["enabled"] = enabled
-
-    response = requests.patch(
-        f"{middleware_url}/api/v1/scheduled-jobs/{job_id}",
-        json=updates,
-        timeout=30
-    )
-    response.raise_for_status()
-    return response.json()
-
-
-def delete_scheduled_reminder(job_id: str) -> Dict[str, Any]:
-    """
-    Delete a scheduled reminder.
-
-    Args:
-        job_id: The job ID (from list_scheduled_reminders)
-
-    Returns:
-        Confirmation with job_id and success status
-    """
-    middleware_url = os.environ.get("MIDDLEWARE_URL")
-
-    response = requests.delete(
-        f"{middleware_url}/api/v1/scheduled-jobs/{job_id}",
-        timeout=30
-    )
-
-    return {"success": response.status_code == 204, "job_id": job_id}
+```
+POST {middleware_url}/api/v1/mcp/scheduler        (Streamable HTTP, MCP spec 2025-03-26)
 ```
 
-Then import these functions in your agent:
+This is the **one** MCP server the middleware exposes. It wraps the existing `/api/v1/scheduled-jobs` REST API as MCP tools so your agent can manage user reminders directly through the LLM tool loop instead of you maintaining wrapper functions.
 
-```python
-# agent.py
-from custom_functions import (
-    create_scheduled_reminder,
-    list_scheduled_reminders,
-    update_scheduled_reminder,
-    delete_scheduled_reminder
-)
-from google.adk.tools import FunctionTool
+### Why this one is hosted by the middleware
 
-# Create tools from the functions
-create_reminder_tool = FunctionTool(func=create_scheduled_reminder)
-list_reminders_tool = FunctionTool(func=list_scheduled_reminders)
-update_reminder_tool = FunctionTool(func=update_scheduled_reminder)
-delete_reminder_tool = FunctionTool(func=delete_scheduled_reminder)
+- The scheduling logic already lives in the middleware (`app/services/scheduled_job_service.py`) and the data lives in middleware Firestore. Co-hosting saves a network hop and avoids duplicating the service code in every agent.
+- `agent_id` is auto-resolved from the API key — your LLM never has to learn its own ID, which removes a category of tool-call mistakes.
+- Authorization (jobs filtered by the calling agent) is enforced server-side.
 
-# Add to your agent's tools list
-tools = [
-    create_reminder_tool,
-    list_reminders_tool,
-    update_reminder_tool,
-    delete_reminder_tool,
-    # ... your other tools
-]
-```
+### Tools exposed
 
-### Configuration
+| Tool | Inputs | Returns |
+|---|---|---|
+| `create_scheduled_reminder` | `name`, `prompt`, `schedule` (cron), `user_id`, optional `timezone`, `output_platform` | the new job |
+| `list_scheduled_reminders` | `user_id` | array of jobs |
+| `update_scheduled_reminder` | `job_id`, optional `name`/`prompt`/`schedule`/`timezone`/`enabled` | updated job |
+| `delete_scheduled_reminder` | `job_id` | `{success, job_id}` |
 
-Your agent needs the following environment variables to access the API:
+If you don't pass `output_platform` to `create_scheduled_reminder`, it defaults to whichever platform the user most recently chatted with this agent on (falling back to `slack` if there's no session yet).
 
-```python
-# In your agent's deployment configuration
-MIDDLEWARE_URL = "https://your-middleware.run.app"
-YOUR_AGENT_ID = "your-agent-firestore-id"  # Document ID from agents collection
-```
+### Provisioning your agent's API key
 
-You can get your agent's Firestore ID by:
+The flow has three steps: terraform provisions the secret container + IAM binding, the middleware-side script generates the key and stores its SHA-256 hash, then you populate the secret value via gcloud.
+
+**Step 1 — Provision infra via terraform** (one-time per agent).
+
+In your agent's terraform directory (copied from [docs/terraform-templates/agent-project/](terraform-templates/agent-project/)), uncomment **Section 5: Scheduler MCP Key** in `main.tf` and run `terraform apply`. That creates:
+
+- An empty `${bot_account_id}-scheduler-mcp-key` secret container in your agent's project.
+- An IAM binding granting your agent's Reasoning Engine service account `roles/secretmanager.secretAccessor` on that secret.
+
+If you deploy with a custom `--service-account` rather than the project's default compute SA, edit the IAM binding's `member` field to match.
+
+**Step 2 — Generate the key + store its hash** (run from the *middleware* repo, not the agent repo):
 
 ```bash
-gcloud firestore documents list agents --project=vertex-ai-middleware-prod
+cd /path/to/slack-vertex-ai-middleware
+python scripts/provision_scheduler_api_key.py --agent-id YOUR_AGENT_FIRESTORE_ID
 ```
 
-### Cron Expression Reference
+The script writes the SHA-256 hash to your agent's Firestore doc and prints the plaintext **once**. Copy it for step 3.
 
-| Schedule | Cron Expression |
-|----------|-----------------|
+**Step 3 — Populate the secret value** (this is the only manual gcloud step — secret values can't live in terraform):
+
+```bash
+echo -n 'PLAINTEXT_FROM_STEP_2' | gcloud secrets versions add \
+  ${BOT_ACCOUNT_ID}-scheduler-mcp-key \
+  --data-file=- --project=$AGENT_PROJECT
+```
+
+To rotate: re-run step 2 (overwrites the hash; old plaintext stops working immediately), then re-run step 3 with the new plaintext.
+
+### Wiring it into your ADK agent
+
+```python
+import os
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StreamableHTTPServerParams
+
+scheduler_toolset = MCPToolset(
+    connection_params=StreamableHTTPServerParams(
+        url=f"{os.environ['MIDDLEWARE_URL']}/api/v1/mcp/scheduler",
+        headers={"X-API-Key": os.environ["SCHEDULER_MCP_KEY"]},
+    ),
+)
+
+root_agent = LlmAgent(
+    model="gemini-2.0-flash",
+    tools=[scheduler_toolset, ...],  # plus whatever else your agent has
+)
+```
+
+Your agent populates `MIDDLEWARE_URL` from its config and `SCHEDULER_MCP_KEY` by reading from Secret Manager at startup.
+
+### Cron expression reference
+
+| Schedule | Cron expression |
+|---|---|
 | Every day at 9 AM | `0 9 * * *` |
 | Weekdays at 9 AM | `0 9 * * 1-5` |
 | Every Monday at 10 AM | `0 10 * * 1` |
@@ -1713,24 +1559,21 @@ gcloud firestore documents list agents --project=vertex-ai-middleware-prod
 | Every 30 minutes | `*/30 * * * *` |
 | First day of month at noon | `0 12 1 * *` |
 
-Format: `minute hour day-of-month month day-of-week`
+Format: `minute hour day-of-month month day-of-week`. The `timezone` field interprets the cron in the IANA zone you pass (e.g. `America/New_York`); defaults to UTC.
 
-### Security Considerations
+### Accessing user context inside scheduled prompts
 
-1. **User Ownership**: Jobs are filtered by `user_id` - users can only see/modify their own jobs
-2. **Agent Scope**: Include `agent_id` filter when listing to show only jobs for your agent
-3. **Validation**: The API validates cron expressions and timezone values
-4. **Cross-Platform**: The `user_id` is platform-agnostic, but `output_platform` determines delivery
-
-### Accessing User Context
-
-When a scheduled job executes, the prompt is sent to your agent with the user's identity:
+When a scheduled reminder fires, the prompt is sent to your agent prefixed with the user's identity, so your agent can personalize:
 
 ```
-[From: Jonathan Cavell] What should I focus on today?
+[From: Jonathan Cavell | slack_id: U0ABC123] What should I focus on today?
 ```
 
-The user's actual name (from Firestore) is included in both the message prefix and the `user_id` field, allowing your agent to personalize responses and access user-specific data consistently across all platforms.
+The name comes from the unified `users` collection, not the platform's display name, so it stays consistent across Slack/Google Chat/Telegram.
+
+### REST API fallback
+
+The REST API at `/api/v1/scheduled-jobs` still works and is not deprecated — same data, same behavior — if you have reason to call it directly (ops scripts, admin tools, etc.). For agents, prefer the MCP path above.
 
 ---
 
@@ -1864,7 +1707,7 @@ If you need to unlink an identity (rare), edit the user document in Firestore:
 
 The middleware **does not proxy general-purpose MCP servers** (Garmin, GitHub, Filesystem, etc.). Each agent integrates those directly via ADK's `MCPToolset`, owning the connection in its own Reasoning Engine container. This keeps the middleware focused on identity, delivery, and scheduling — not tool routing.
 
-> **The one exception is the scheduler MCP**, which the middleware *does* host because the scheduling logic and data live in the middleware's Firestore. See [Scheduler MCP Server](#scheduler-mcp-server) below.
+> **The one exception is the scheduler MCP**, which the middleware *does* host because the scheduling logic and data live in the middleware's Firestore. See [Scheduler MCP Server](#scheduler-mcp-server) above.
 
 ### Why agent-side MCP
 
@@ -1953,86 +1796,3 @@ npx @modelcontextprotocol/inspector \
 npx @modelcontextprotocol/inspector \
   sse https://your-mcp-server.example.com/sse
 ```
-
----
-
-## Scheduler MCP Server
-
-The middleware hosts a single MCP server — the scheduler — at:
-
-```
-POST {middleware_url}/api/v1/mcp/scheduler        (Streamable HTTP, MCP spec 2025-03-26)
-```
-
-This is the **one** MCP server the middleware exposes. It wraps the existing `/api/v1/scheduled-jobs` REST API as MCP tools so your agent can manage user reminders directly through the LLM tool loop instead of you maintaining wrapper functions in `custom_functions.py`.
-
-### Why this one is hosted by the middleware
-
-- The scheduling logic already lives in the middleware (`app/services/scheduled_job_service.py`) and the data lives in middleware Firestore. Co-hosting saves a network hop and avoids duplicating the service code in every agent.
-- `agent_id` is auto-resolved from the API key — your LLM never has to learn its own ID, which removes a category of tool-call mistakes.
-- Authorization (jobs filtered by the calling agent) is enforced server-side.
-
-### Tools exposed
-
-| Tool | Inputs | Returns |
-|---|---|---|
-| `create_scheduled_reminder` | `name`, `prompt`, `schedule` (cron), `user_id`, optional `timezone`, `output_platform` | the new job |
-| `list_scheduled_reminders` | `user_id` | array of jobs |
-| `update_scheduled_reminder` | `job_id`, optional `name`/`prompt`/`schedule`/`timezone`/`enabled` | updated job |
-| `delete_scheduled_reminder` | `job_id` | `{success, job_id}` |
-
-If you don't pass `output_platform` to `create_scheduled_reminder`, it defaults to whichever platform the user most recently chatted with this agent on (falling back to `slack` if there's no session yet).
-
-### Provisioning your agent's API key
-
-Each agent gets its own API key. The middleware stores only a SHA-256 hash; you store the plaintext.
-
-```bash
-# Run from the middleware repo
-python scripts/provision_scheduler_api_key.py --agent-id YOUR_AGENT_FIRESTORE_ID
-
-# Output (shown ONCE — vault it immediately):
-#   Plaintext key (shown ONCE — vault it now):
-#       <43-char-token>
-```
-
-Then store the plaintext in your agent's project Secret Manager:
-
-```bash
-echo -n '<KEY>' | gcloud secrets versions add scheduler-mcp-key \
-  --data-file=- --project=$AGENT_PROJECT
-
-# And grant your agent's Reasoning Engine SA access to read it
-gcloud secrets add-iam-policy-binding scheduler-mcp-key \
-  --member="serviceAccount:${AGENT_RE_SA}" \
-  --role="roles/secretmanager.secretAccessor" \
-  --project=$AGENT_PROJECT
-```
-
-To rotate, just re-run the provision script — the new hash overwrites the old one in Firestore and the previous plaintext stops working immediately.
-
-### Wiring it into your ADK agent
-
-```python
-import os
-from google.adk.agents import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StreamableHTTPServerParams
-
-scheduler_toolset = MCPToolset(
-    connection_params=StreamableHTTPServerParams(
-        url=f"{os.environ['MIDDLEWARE_URL']}/api/v1/mcp/scheduler",
-        headers={"X-API-Key": os.environ["SCHEDULER_MCP_KEY"]},
-    ),
-)
-
-root_agent = LlmAgent(
-    model="gemini-2.0-flash",
-    tools=[scheduler_toolset, ...],  # plus whatever else your agent has
-)
-```
-
-Your agent populates `MIDDLEWARE_URL` from its config and `SCHEDULER_MCP_KEY` by reading from Secret Manager at startup.
-
-### What changes vs. the old `custom_functions.py` approach
-
-The pre-MCP guidance recommended writing four wrapper functions (`create_scheduled_reminder`, `list_scheduled_reminders`, `update_scheduled_reminder`, `delete_scheduled_reminder`) using `requests` against the REST API and registering them as `FunctionTool`s. **You don't need any of that anymore** — the MCP server replaces it. Old agents using the REST API still work; the REST endpoints aren't going away. But for new agents, prefer the MCP path.
