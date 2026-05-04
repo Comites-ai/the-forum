@@ -33,6 +33,7 @@ The template handles both the new `platforms` array structure and legacy fields 
 9. [Building Scheduled Job Tools](#building-scheduled-job-tools)
 10. [Linking Platform Identities](#linking-platform-identities)
 11. [Adding MCP Servers to Your Agent (ADK-native)](#adding-mcp-servers-to-your-agent-adk-native)
+12. [Scheduler MCP Server](#scheduler-mcp-server)
 
 ---
 
@@ -1861,7 +1862,9 @@ If you need to unlink an identity (rare), edit the user document in Firestore:
 
 ## Adding MCP Servers to Your Agent (ADK-native)
 
-The middleware **does not proxy MCP servers**. Each agent integrates MCP servers directly via ADK's `MCPToolset`, owning the connection in its own Reasoning Engine container. This keeps the middleware focused on identity, delivery, and scheduling — not tool routing.
+The middleware **does not proxy general-purpose MCP servers** (Garmin, GitHub, Filesystem, etc.). Each agent integrates those directly via ADK's `MCPToolset`, owning the connection in its own Reasoning Engine container. This keeps the middleware focused on identity, delivery, and scheduling — not tool routing.
+
+> **The one exception is the scheduler MCP**, which the middleware *does* host because the scheduling logic and data live in the middleware's Firestore. See [Scheduler MCP Server](#scheduler-mcp-server) below.
 
 ### Why agent-side MCP
 
@@ -1950,3 +1953,86 @@ npx @modelcontextprotocol/inspector \
 npx @modelcontextprotocol/inspector \
   sse https://your-mcp-server.example.com/sse
 ```
+
+---
+
+## Scheduler MCP Server
+
+The middleware hosts a single MCP server — the scheduler — at:
+
+```
+POST {middleware_url}/api/v1/mcp/scheduler        (Streamable HTTP, MCP spec 2025-03-26)
+```
+
+This is the **one** MCP server the middleware exposes. It wraps the existing `/api/v1/scheduled-jobs` REST API as MCP tools so your agent can manage user reminders directly through the LLM tool loop instead of you maintaining wrapper functions in `custom_functions.py`.
+
+### Why this one is hosted by the middleware
+
+- The scheduling logic already lives in the middleware (`app/services/scheduled_job_service.py`) and the data lives in middleware Firestore. Co-hosting saves a network hop and avoids duplicating the service code in every agent.
+- `agent_id` is auto-resolved from the API key — your LLM never has to learn its own ID, which removes a category of tool-call mistakes.
+- Authorization (jobs filtered by the calling agent) is enforced server-side.
+
+### Tools exposed
+
+| Tool | Inputs | Returns |
+|---|---|---|
+| `create_scheduled_reminder` | `name`, `prompt`, `schedule` (cron), `user_id`, optional `timezone`, `output_platform` | the new job |
+| `list_scheduled_reminders` | `user_id` | array of jobs |
+| `update_scheduled_reminder` | `job_id`, optional `name`/`prompt`/`schedule`/`timezone`/`enabled` | updated job |
+| `delete_scheduled_reminder` | `job_id` | `{success, job_id}` |
+
+If you don't pass `output_platform` to `create_scheduled_reminder`, it defaults to whichever platform the user most recently chatted with this agent on (falling back to `slack` if there's no session yet).
+
+### Provisioning your agent's API key
+
+Each agent gets its own API key. The middleware stores only a SHA-256 hash; you store the plaintext.
+
+```bash
+# Run from the middleware repo
+python scripts/provision_scheduler_api_key.py --agent-id YOUR_AGENT_FIRESTORE_ID
+
+# Output (shown ONCE — vault it immediately):
+#   Plaintext key (shown ONCE — vault it now):
+#       <43-char-token>
+```
+
+Then store the plaintext in your agent's project Secret Manager:
+
+```bash
+echo -n '<KEY>' | gcloud secrets versions add scheduler-mcp-key \
+  --data-file=- --project=$AGENT_PROJECT
+
+# And grant your agent's Reasoning Engine SA access to read it
+gcloud secrets add-iam-policy-binding scheduler-mcp-key \
+  --member="serviceAccount:${AGENT_RE_SA}" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project=$AGENT_PROJECT
+```
+
+To rotate, just re-run the provision script — the new hash overwrites the old one in Firestore and the previous plaintext stops working immediately.
+
+### Wiring it into your ADK agent
+
+```python
+import os
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StreamableHTTPServerParams
+
+scheduler_toolset = MCPToolset(
+    connection_params=StreamableHTTPServerParams(
+        url=f"{os.environ['MIDDLEWARE_URL']}/api/v1/mcp/scheduler",
+        headers={"X-API-Key": os.environ["SCHEDULER_MCP_KEY"]},
+    ),
+)
+
+root_agent = LlmAgent(
+    model="gemini-2.0-flash",
+    tools=[scheduler_toolset, ...],  # plus whatever else your agent has
+)
+```
+
+Your agent populates `MIDDLEWARE_URL` from its config and `SCHEDULER_MCP_KEY` by reading from Secret Manager at startup.
+
+### What changes vs. the old `custom_functions.py` approach
+
+The pre-MCP guidance recommended writing four wrapper functions (`create_scheduled_reminder`, `list_scheduled_reminders`, `update_scheduled_reminder`, `delete_scheduled_reminder`) using `requests` against the REST API and registering them as `FunctionTool`s. **You don't need any of that anymore** — the MCP server replaces it. Old agents using the REST API still work; the REST endpoints aren't going away. But for new agents, prefer the MCP path.

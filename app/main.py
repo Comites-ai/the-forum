@@ -4,9 +4,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from starlette.routing import Mount
 
 from app.config import get_settings
 from app.api.v1 import routes as v1_routes
+from app.api.v1 import scheduler_mcp
 from app.services.firestore_service import FirestoreService
 from app.services.vertex_ai_service import VertexAIService
 from app.services.slack_service import SlackService
@@ -54,7 +56,12 @@ async def lifespan(app: FastAPI):
 
     logger.info("Services initialized successfully")
 
-    yield
+    # The MCP Streamable HTTP session manager has its own lifecycle — it
+    # spawns an anyio task group for in-flight requests and must be torn
+    # down when the app shuts down. Nesting its run() context here ensures
+    # the task group lives for the duration of the FastAPI lifespan.
+    async with scheduler_mcp.session_manager.run():
+        yield
 
     # Shutdown
     logger.info("Shutting down application...")
@@ -80,6 +87,13 @@ def create_app() -> FastAPI:
 
     # Include API routers
     app.include_router(v1_routes.router, prefix=settings.api_v1_prefix)
+
+    # Mount the scheduler MCP server as a raw ASGI sub-app — the MCP Streamable
+    # HTTP transport writes directly to the ASGI send() and doesn't fit
+    # FastAPI's request/response model.
+    app.routes.append(
+        Mount(f"{settings.api_v1_prefix}/mcp/scheduler", app=scheduler_mcp.asgi_app)
+    )
 
     # Health check endpoint
     @app.get("/health")

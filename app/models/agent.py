@@ -82,6 +82,14 @@ class Agent(BaseModel):
         description="Platform-specific configurations"
     )
 
+    # Scheduler MCP authentication: SHA-256 hash of the API key the agent
+    # presents in the X-API-Key header when calling /api/v1/mcp/scheduler.
+    # Provisioned by scripts/provision_scheduler_api_key.py.
+    scheduler_api_key_hash: Optional[str] = Field(
+        default=None,
+        description="SHA-256 hex digest of the agent's scheduler MCP API key"
+    )
+
     model_config = {"frozen": False}  # Mutable for backward compat migration
 
     @model_validator(mode='after')

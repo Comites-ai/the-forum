@@ -23,6 +23,10 @@ class Session(BaseModel):
         default_factory=list,
         description="Platforms this session has been accessed from (slack, google_chat)"
     )
+    last_active_platform: Optional[str] = Field(
+        default=None,
+        description="Platform of the most recent message; used to default scheduled-reminder delivery target"
+    )
     created_at: datetime = Field(..., description="Session creation timestamp")
     last_activity_at: datetime = Field(..., description="Last message timestamp")
 

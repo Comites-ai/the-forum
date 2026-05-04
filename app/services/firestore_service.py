@@ -763,6 +763,7 @@ class FirestoreService:
                 "agent_id": agent_id,
                 "vertex_ai_session_id": vertex_ai_session_id,
                 "platforms_used": [platform],
+                "last_active_platform": platform,
                 "created_at": now,
                 "last_activity_at": now,
             }
@@ -779,6 +780,34 @@ class FirestoreService:
             logger.error(f"Error creating session for user {user_id}/agent {agent_id}: {e}")
             raise
 
+    async def get_agent_by_scheduler_api_key_hash(self, key_hash: str) -> Optional[Agent]:
+        """
+        Look up an agent by the SHA-256 hash of its scheduler MCP API key.
+
+        Used by the scheduler MCP endpoint to authenticate incoming requests
+        and resolve which agent is calling.
+
+        Args:
+            key_hash: SHA-256 hex digest of the API key from X-API-Key header
+
+        Returns:
+            Agent if a matching hash is found, None otherwise
+        """
+        try:
+            query = (
+                self.client.collection(self.agents_collection)
+                .where(filter=FieldFilter("scheduler_api_key_hash", "==", key_hash))
+                .limit(1)
+            )
+            docs = [d async for d in query.stream()]
+            if not docs:
+                return None
+            data = docs[0].to_dict()
+            return Agent(**data, id=docs[0].id)
+        except Exception as e:
+            logger.error(f"Error fetching agent by scheduler API key hash: {e}")
+            return None
+
     async def update_session_platforms(
         self, session_id: str, platform: str
     ) -> None:
@@ -793,11 +822,14 @@ class FirestoreService:
             Exception: If update fails
         """
         try:
-            # Use ArrayUnion to add platform if not already present
+            # Use ArrayUnion to add platform if not already present, and track
+            # the most recently used platform so the scheduler MCP can default
+            # output_platform to it.
             await self.client.collection(self.sessions_collection).document(
                 session_id
             ).update({
                 "platforms_used": ArrayUnion([platform]),
+                "last_active_platform": platform,
                 "last_activity_at": datetime.utcnow()
             })
 
