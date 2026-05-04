@@ -1472,8 +1472,12 @@ GCS_FILE_PREFIX=slack-files
 The middleware hosts a single MCP server — the scheduler — at:
 
 ```
-POST {middleware_url}/api/v1/mcp/scheduler        (Streamable HTTP, MCP spec 2025-03-26)
+POST {middleware_url}/api/v1/mcp/scheduler/       (Streamable HTTP, MCP spec 2025-03-26)
 ```
+
+The trailing slash matters — the path is a Starlette `Mount`, so the bare
+form 307-redirects to `/scheduler/` and most MCP HTTP clients follow with
+GET instead of re-POSTing. Always include the slash.
 
 This is the **one** MCP server the middleware exposes. It wraps the existing `/api/v1/scheduled-jobs` REST API as MCP tools so your agent can manage user reminders directly through the LLM tool loop instead of you maintaining wrapper functions.
 
@@ -1531,11 +1535,16 @@ To rotate: re-run step 2 (overwrites the hash; old plaintext stops working immed
 ```python
 import os
 from google.adk.agents import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StreamableHTTPServerParams
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StreamableHTTPConnectionParams
 
 scheduler_toolset = MCPToolset(
-    connection_params=StreamableHTTPServerParams(
-        url=f"{os.environ['MIDDLEWARE_URL']}/api/v1/mcp/scheduler",
+    connection_params=StreamableHTTPConnectionParams(
+        # Trailing slash is required: the route is mounted as a sub-app at
+        # `/scheduler`, so Starlette 307-redirects bare requests to the
+        # canonical `/scheduler/` form. The MCP HTTP client follows the
+        # redirect with GET instead of re-POSTing, which silently breaks the
+        # JSON-RPC handshake.
+        url=f"{os.environ['MIDDLEWARE_URL']}/api/v1/mcp/scheduler/",
         headers={"X-API-Key": os.environ["SCHEDULER_MCP_KEY"]},
     ),
 )
@@ -1749,17 +1758,17 @@ root_agent = LlmAgent(
 If the MCP server runs as its own HTTP service (third-party hosted, or one you deploy yourself), use the HTTP transport:
 
 ```python
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseServerParams
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams
 
 my_tools = MCPToolset(
-    connection_params=SseServerParams(
+    connection_params=SseConnectionParams(
         url="https://your-mcp-server.example.com/sse",
         headers={"X-API-Key": os.environ["MY_MCP_API_KEY"]},
     ),
 )
 ```
 
-For Streamable HTTP (the modern MCP spec, recommended over SSE for new servers), use the equivalent `StreamableHTTPServerParams` from your ADK / `mcp` SDK version.
+For Streamable HTTP (the modern MCP spec, recommended over SSE for new servers), swap in `StreamableHTTPConnectionParams` — same `url=`/`headers=` kwargs.
 
 ### Credentials
 

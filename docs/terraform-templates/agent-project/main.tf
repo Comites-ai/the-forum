@@ -464,7 +464,7 @@ SECTION 5: SCHEDULER MCP SETUP (If using scheduled reminders)
         --data-file=- --project=${var.project_id}
 
 5c. Configure your ADK agent to read the key at startup and pass it to
-    MCPToolset(StreamableHTTPServerParams(headers={"X-API-Key": ...})).
+    MCPToolset(StreamableHTTPConnectionParams(headers={"X-API-Key": ...})).
     See FOR_AGENT_DEVELOPERS.md §9 for the full ADK wiring example.
 
     To rotate: re-run 5a (overwrites the hash in middleware Firestore),
