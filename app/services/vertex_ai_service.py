@@ -12,7 +12,7 @@ from google.protobuf import struct_pb2
 from google.api_core.exceptions import ResourceExhausted
 
 from app.config import get_settings
-from app.core.exceptions import ResourceExhaustedError
+from app.core.exceptions import ResourceExhaustedError, AgentStreamError
 
 logger = logging.getLogger(__name__)
 
@@ -154,24 +154,53 @@ class VertexAIService:
                 class_method="stream_query"
             )
 
-            # Run in executor to avoid blocking
+            # Run in executor to avoid blocking. Capture mid-stream failures
+            # separately from the "stream completed cleanly but yielded nothing"
+            # case so the caller can distinguish them.
             loop = asyncio.get_event_loop()
+
+            stream_state = {"partial_chunks": 0, "stream_error": None}
 
             def stream_query():
                 responses = []
-                for chunk in exec_client.stream_query_reasoning_engine(request=request):
-                    if chunk.data:
-                        chunk_str = chunk.data.decode('utf-8')
-                        responses.append(chunk_str)
+                try:
+                    for chunk in exec_client.stream_query_reasoning_engine(request=request):
+                        if chunk.data:
+                            chunk_str = chunk.data.decode('utf-8')
+                            responses.append(chunk_str)
+                            stream_state["partial_chunks"] = len(responses)
+                except Exception as exc:
+                    stream_state["stream_error"] = exc
                 return responses
 
             chunks = await loop.run_in_executor(None, stream_query)
             chunk_count = len(chunks)
+            stream_error = stream_state["stream_error"]
 
-            # Extract text content from response chunks
             full_response = self._extract_text_from_chunks(
                 chunks, message_length=message_length
             )
+
+            # If the stream errored mid-flight, surface it as AgentStreamError
+            # so MessageProcessorV2 can show a "lost connection" message.
+            # Rate-limit errors take precedence (handled below).
+            if stream_error is not None:
+                error_str = str(stream_error).lower()
+                if "429" in str(stream_error) or "resource_exhausted" in error_str:
+                    logger.warning(
+                        f"Rate limit during stream from Reasoning Engine {agent_id}, "
+                        f"session {session_id} (after {chunk_count} chunks): {stream_error}"
+                    )
+                    raise ResourceExhaustedError(
+                        "Looks like Google won't let me think right now, try again in a minute."
+                    )
+                logger.error(
+                    f"Stream error from Reasoning Engine {agent_id}, "
+                    f"session {session_id} (after {chunk_count} chunks): {stream_error}"
+                )
+                raise AgentStreamError(
+                    f"Reasoning Engine stream failed mid-flight: {stream_error}"
+                ) from stream_error
 
             if not full_response.strip():
                 logger.warning(
@@ -195,6 +224,8 @@ class VertexAIService:
             raise ResourceExhaustedError(
                 "Looks like Google won't let me think right now, try again in a minute."
             )
+        except (ResourceExhaustedError, AgentStreamError):
+            raise
         except Exception as e:
             error_str = str(e).lower()
             if "429" in str(e) or "resource_exhausted" in error_str:
@@ -221,6 +252,11 @@ class VertexAIService:
         function calls, function responses, and text content.
         We extract only the final text content.
 
+        Logs a breakdown by part type ('text', 'function_call',
+        'function_response', 'other') to help diagnose empty-response
+        cases — most often the agent emitted only function calls/responses
+        and never produced final text.
+
         Args:
             chunks: List of JSON strings from the stream
             message_length: Length of the original message (for diagnostic logging)
@@ -230,6 +266,13 @@ class VertexAIService:
         """
         text_parts = []
         chunk_count = len(chunks)
+        breakdown = {
+            "text": 0,
+            "function_call": 0,
+            "function_response": 0,
+            "other": 0,
+            "unparseable": 0,
+        }
 
         for i, chunk_str in enumerate(chunks):
             try:
@@ -238,27 +281,44 @@ class VertexAIService:
                 parts = content.get("parts", [])
 
                 for part in parts:
-                    # Extract text content (skip function calls/responses)
                     if "text" in part:
+                        breakdown["text"] += 1
                         text_parts.append(part["text"])
+                    elif "function_call" in part:
+                        breakdown["function_call"] += 1
+                    elif "function_response" in part:
+                        breakdown["function_response"] += 1
+                    else:
+                        breakdown["other"] += 1
 
             except json.JSONDecodeError:
-                # If not valid JSON, might be raw text
+                # If not valid JSON, treat as raw text but flag it.
+                breakdown["unparseable"] += 1
                 text_parts.append(chunk_str)
             except Exception as e:
                 logger.debug(f"Error parsing chunk {i}: {e}")
+                breakdown["other"] += 1
                 continue
 
         result = "".join(text_parts)
 
-        # Log diagnostic info when response is empty
+        breakdown_str = (
+            f"text={breakdown['text']} "
+            f"function_call={breakdown['function_call']} "
+            f"function_response={breakdown['function_response']} "
+            f"other={breakdown['other']} "
+            f"unparseable={breakdown['unparseable']}"
+        )
+
         if not result.strip() and chunk_count > 0:
-            # Log first chunk preview to help diagnose empty responses
             first_chunk_preview = chunks[0][:500] if chunks else "(no chunks)"
             logger.warning(
                 f"Empty text extracted from {chunk_count} chunks. "
+                f"Breakdown: {breakdown_str}. "
                 f"Input message was {message_length} chars. "
                 f"First chunk preview: {first_chunk_preview}"
             )
+        else:
+            logger.debug(f"Chunk breakdown ({chunk_count} chunks): {breakdown_str}")
 
         return result

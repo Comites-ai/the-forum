@@ -34,18 +34,23 @@ class PlatformConnector(ABC):
         pass
 
     @abstractmethod
-    async def download_file(self, file_url: str) -> bytes:
+    async def download_file(self, download_ref: str) -> bytes:
         """
-        Download a file from a platform-specific URL.
+        Download a file using a platform-specific reference.
+
+        The reference is opaque to the caller — each connector decides what
+        it accepts (Slack: signed URL; Telegram: file_id; Google Chat:
+        attachment resourceName) and produces matching values in the
+        PlatformEvent.files dicts.
 
         Args:
-            file_url: Platform-specific URL to download from
+            download_ref: Connector-specific reference to the file
 
         Returns:
             Raw file bytes
 
         Raises:
-            Exception: If download fails
+            FileDownloadError: If download fails
         """
         pass
 

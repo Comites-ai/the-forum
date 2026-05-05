@@ -1,6 +1,7 @@
 """Google Chat platform connector implementation."""
 import logging
 import json
+import urllib.parse
 from typing import Optional
 from fastapi import Request
 
@@ -13,6 +14,7 @@ import aiohttp
 from app.services.platforms.base import PlatformConnector
 from app.schemas.platform_event import PlatformEvent
 from app.config import get_settings
+from app.core.exceptions import FileDownloadError
 
 logger = logging.getLogger(__name__)
 
@@ -126,50 +128,60 @@ class GoogleChatConnector(PlatformConnector):
             )
             raise
 
-    async def download_file(self, file_url: str) -> bytes:
+    async def download_file(self, download_ref: str) -> bytes:
         """
-        Download a file from Google Chat attachment URL.
-
-        Google Chat attachments are typically served via Google Drive URLs
-        or other Google storage URLs that require authentication.
+        Download an UPLOADED_CONTENT attachment from Google Chat.
 
         Args:
-            file_url: The attachment download URL
+            download_ref: The resourceName from the attachment's
+                attachmentDataRef (e.g. produced by parse_event for
+                source=UPLOADED_CONTENT). Drive-shared files are not
+                supported and parse_event marks them as non-image so they
+                surface as the unsupported-file-type rejection.
 
         Returns:
             Raw file bytes
 
         Raises:
-            Exception: If download fails
+            FileDownloadError: If the download fails for any reason.
         """
+        if not download_ref:
+            raise FileDownloadError(
+                "No Google Chat download reference (Drive-shared files are not supported)"
+            )
+
         try:
-            # Refresh credentials if needed
             if not self.credentials.valid:
                 self.credentials.refresh(GoogleAuthRequest())
-
-            # Get access token
             access_token = self.credentials.token
+
+            encoded_ref = urllib.parse.quote(download_ref, safe='')
+            url = f"https://chat.googleapis.com/v1/media/{encoded_ref}?alt=media"
 
             async with aiohttp.ClientSession() as session:
                 headers = {"Authorization": f"Bearer {access_token}"}
-                async with session.get(file_url, headers=headers) as response:
+                async with session.get(url, headers=headers) as response:
                     if response.status == 200:
                         file_bytes = await response.read()
                         logger.info(
-                            f"Downloaded file from Google Chat: {len(file_bytes)} bytes"
+                            f"Downloaded Google Chat attachment: {len(file_bytes)} bytes"
                         )
                         return file_bytes
-                    else:
-                        error_text = await response.text()
-                        logger.error(
-                            f"Failed to download file: {response.status} - {error_text}"
-                        )
-                        raise Exception(
-                            f"Failed to download Google Chat file: {response.status}"
-                        )
-        except Exception as e:
-            logger.error(f"Error downloading file from Google Chat: {e}")
+                    error_text = await response.text()
+                    logger.error(
+                        f"Google Chat media download failed: "
+                        f"{response.status} - {error_text}"
+                    )
+                    raise FileDownloadError(
+                        f"Google Chat returned {response.status} when downloading attachment"
+                    )
+        except FileDownloadError:
             raise
+        except Exception as e:
+            logger.error(f"Google Chat file download error (ref={download_ref}): {e}")
+            raise FileDownloadError(
+                f"Network error downloading Google Chat attachment: {e}"
+            ) from e
 
     async def get_user_info(self, user_id: str) -> dict:
         """
@@ -325,12 +337,47 @@ class GoogleChatConnector(PlatformConnector):
         if not user_id or not space_id:
             raise ValueError(f"Invalid Google Chat event: missing user or space")
 
+        # Transform Google Chat attachments into canonical file dicts.
+        # UPLOADED_CONTENT → real download_ref (resourceName); fetched via
+        #   chat.googleapis.com/v1/media/{ref} in download_file().
+        # DRIVE_FILE → marked with a non-image mimetype so the processor
+        #   surfaces it as "unsupported file type". Real Drive support
+        #   would require Drive API + extra scopes (out of scope).
+        # Anything else → treated as unsupported.
+        files = []
+        for att in attachments:
+            source = att.get("source", "")
+            content_type = att.get("contentType", "")
+            content_name = att.get("contentName")
+            if source == "UPLOADED_CONTENT":
+                ref_obj = att.get("attachmentDataRef", {}) or {}
+                files.append({
+                    "mimetype": content_type,
+                    "download_ref": ref_obj.get("resourceName", ""),
+                    "name": content_name,
+                    "source": "uploaded",
+                })
+            elif source == "DRIVE_FILE":
+                files.append({
+                    "mimetype": "application/x-google-drive-file",
+                    "download_ref": "",
+                    "name": content_name,
+                    "source": "drive",
+                })
+            else:
+                files.append({
+                    "mimetype": content_type or "application/octet-stream",
+                    "download_ref": "",
+                    "name": content_name,
+                    "source": "unknown",
+                })
+
         return PlatformEvent(
             platform="google_chat",
             user_id=user_id,
             user_email=user_email,
             message_text=message_text,
             space_id=space_id,
-            files=attachments,  # Will need transformation for file handling
+            files=files,
             raw_event=data
         )

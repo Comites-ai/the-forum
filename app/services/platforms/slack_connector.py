@@ -13,6 +13,7 @@ import aiohttp
 
 from app.services.platforms.base import PlatformConnector
 from app.schemas.platform_event import PlatformEvent
+from app.core.exceptions import FileDownloadError
 
 logger = logging.getLogger(__name__)
 
@@ -143,38 +144,43 @@ class SlackConnector(PlatformConnector):
             )
             raise
 
-    async def download_file(self, file_url: str) -> bytes:
+    async def download_file(self, download_ref: str) -> bytes:
         """
         Download a file from Slack's private URL.
 
         Slack file URLs (url_private) require authentication with the bot token.
 
         Args:
-            file_url: The url_private from a Slack file object
+            download_ref: The url_private from a Slack file object
 
         Returns:
             Raw file bytes
 
         Raises:
-            Exception: If download fails
+            FileDownloadError: If download fails (network error or non-200 status)
         """
-        async with aiohttp.ClientSession() as session:
-            headers = {"Authorization": f"Bearer {self.bot_token}"}
-            async with session.get(file_url, headers=headers) as response:
-                if response.status == 200:
-                    file_bytes = await response.read()
-                    logger.info(
-                        f"Downloaded file from Slack: {len(file_bytes)} bytes"
-                    )
-                    return file_bytes
-                else:
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {"Authorization": f"Bearer {self.bot_token}"}
+                async with session.get(download_ref, headers=headers) as response:
+                    if response.status == 200:
+                        file_bytes = await response.read()
+                        logger.info(
+                            f"Downloaded file from Slack: {len(file_bytes)} bytes"
+                        )
+                        return file_bytes
                     error_text = await response.text()
                     logger.error(
-                        f"Failed to download file: {response.status} - {error_text}"
+                        f"Slack file download failed: {response.status} - {error_text}"
                     )
-                    raise Exception(
-                        f"Failed to download Slack file: {response.status}"
+                    raise FileDownloadError(
+                        f"Slack returned {response.status} when downloading file"
                     )
+        except FileDownloadError:
+            raise
+        except Exception as e:
+            logger.error(f"Slack file download network error: {e}")
+            raise FileDownloadError(f"Network error downloading Slack file: {e}") from e
 
     async def get_user_info(self, user_id: str) -> dict:
         """
@@ -308,10 +314,20 @@ class SlackConnector(PlatformConnector):
         user_id = event_data.get("user")
         channel_id = event_data.get("channel")
         message_text = event_data.get("text", "")
-        files = event_data.get("files", [])
+        raw_files = event_data.get("files", [])
 
         if not user_id or not channel_id:
             raise ValueError(f"Invalid Slack event: missing user or channel")
+
+        # Normalize Slack file objects to canonical {mimetype, download_ref, ...}
+        files = []
+        for f in raw_files:
+            files.append({
+                "mimetype": f.get("mimetype", ""),
+                "download_ref": f.get("url_private") or f.get("url", ""),
+                "name": f.get("name"),
+                "size": f.get("size"),
+            })
 
         return PlatformEvent(
             platform="slack",

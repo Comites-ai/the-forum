@@ -8,6 +8,7 @@ from typing import Optional
 from google.cloud import storage
 
 from app.config import get_settings
+from app.core.exceptions import GcsUploadError
 
 logger = logging.getLogger(__name__)
 
@@ -42,15 +43,13 @@ class GCSService:
             Dict with 'gcs_uri' and 'mime_type'
 
         Raises:
-            Exception: If upload fails
+            GcsUploadError: If the upload fails for any reason.
         """
-        # Generate unique blob name
         timestamp = datetime.utcnow().strftime("%Y%m%d")
         unique_id = uuid.uuid4().hex[:12]
         extension = self._get_extension(mime_type, original_filename)
         blob_name = f"{self.file_prefix}/{timestamp}/{unique_id}{extension}"
 
-        # Upload file (sync operation, run in executor for async)
         loop = asyncio.get_event_loop()
 
         def _upload():
@@ -58,7 +57,14 @@ class GCSService:
             blob.upload_from_string(file_bytes, content_type=mime_type)
             return blob
 
-        await loop.run_in_executor(None, _upload)
+        try:
+            await loop.run_in_executor(None, _upload)
+        except Exception as e:
+            logger.error(
+                f"GCS upload failed for blob {blob_name} "
+                f"({len(file_bytes)} bytes, {mime_type}): {e}"
+            )
+            raise GcsUploadError(f"Failed to upload to GCS: {e}") from e
 
         gcs_uri = f"gs://{self.bucket_name}/{blob_name}"
         logger.info(f"Uploaded file to GCS: {gcs_uri} ({len(file_bytes)} bytes)")

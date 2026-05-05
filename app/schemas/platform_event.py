@@ -32,7 +32,20 @@ class PlatformEvent(BaseModel):
     )
     files: list[dict[str, Any]] = Field(
         default_factory=list,
-        description="File attachments in platform-specific format"
+        description=(
+            "File attachments. Each dict is expected to carry canonical keys "
+            "'mimetype' (str) and 'download_ref' (str, opaque reference the "
+            "owning connector knows how to fetch). Connectors may include "
+            "extra keys (size, name, etc.) for diagnostics."
+        )
+    )
+    media_group_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Set by Telegram when this event is part of a multi-photo album. "
+            "Treated by the processor as a 'multiple images' signal even when "
+            "len(files) == 1, since album photos arrive as separate webhooks."
+        )
     )
     raw_event: dict[str, Any] = Field(
         ...,

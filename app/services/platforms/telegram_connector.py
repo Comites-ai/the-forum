@@ -9,6 +9,7 @@ from google.cloud import secretmanager
 
 from app.services.platforms.base import PlatformConnector
 from app.schemas.platform_event import PlatformEvent
+from app.core.exceptions import FileDownloadError
 
 logger = logging.getLogger(__name__)
 
@@ -137,25 +138,25 @@ class TelegramConnector(PlatformConnector):
             )
             raise
 
-    async def download_file(self, file_id: str) -> bytes:
+    async def download_file(self, download_ref: str) -> bytes:
         """
-        Download a file from Telegram using file_id.
+        Download a file from Telegram using its file_id.
 
         Telegram file download is a two-step process:
-        1. Get file_path using getFile API
-        2. Download the file from the file_path
+        1. Resolve file_id → file_path via getFile API
+        2. GET the file from /file/bot<token>/<file_path>
 
         Args:
-            file_id: Telegram file_id from the message
+            download_ref: Telegram file_id from the message
 
         Returns:
             Raw file bytes
 
         Raises:
-            Exception: If download fails
+            FileDownloadError: If either step fails
         """
+        file_id = download_ref
         try:
-            # Step 1: Get file_path
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     f"{self.api_base}/getFile",
@@ -165,13 +166,13 @@ class TelegramConnector(PlatformConnector):
 
                     if not result.get("ok"):
                         error_description = result.get("description", "unknown_error")
-                        raise Exception(f"Failed to get file path: {error_description}")
+                        raise FileDownloadError(
+                            f"Telegram getFile failed: {error_description}"
+                        )
 
                     file_path = result["result"]["file_path"]
                     logger.debug(f"Got Telegram file path: {file_path}")
 
-                # Step 2: Download the file
-                # Files are available at: https://api.telegram.org/file/bot<token>/<file_path>
                 file_url = f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}"
 
                 async with session.get(file_url) as download_response:
@@ -181,18 +182,20 @@ class TelegramConnector(PlatformConnector):
                             f"Downloaded file from Telegram: {len(file_bytes)} bytes"
                         )
                         return file_bytes
-                    else:
-                        error_text = await download_response.text()
-                        logger.error(
-                            f"Failed to download file: {download_response.status} - {error_text}"
-                        )
-                        raise Exception(
-                            f"Failed to download Telegram file: {download_response.status}"
-                        )
+                    error_text = await download_response.text()
+                    logger.error(
+                        f"Telegram file download failed: "
+                        f"{download_response.status} - {error_text}"
+                    )
+                    raise FileDownloadError(
+                        f"Telegram returned {download_response.status} when downloading file"
+                    )
 
-        except Exception as e:
-            logger.error(f"Error downloading Telegram file {file_id}: {e}")
+        except FileDownloadError:
             raise
+        except Exception as e:
+            logger.error(f"Telegram file download error (file_id={file_id}): {e}")
+            raise FileDownloadError(f"Network error downloading Telegram file: {e}") from e
 
     async def get_user_info(self, user_id: str) -> dict:
         """
@@ -348,56 +351,54 @@ class TelegramConnector(PlatformConnector):
             raise ValueError("Invalid Telegram message: missing user id or chat id")
 
         # Extract file attachments (photos, documents, etc.)
+        # Each file dict carries canonical keys 'mimetype' and 'download_ref'
+        # so MessageProcessorV2 can stay platform-agnostic.
         files = []
 
-        # Handle photo attachments (Telegram sends multiple sizes)
         if "photo" in message:
-            # Use the largest photo (last in the array)
+            # Telegram sends multiple sizes; the last entry is the largest.
             photos = message["photo"]
             if photos:
                 largest_photo = photos[-1]
                 files.append({
-                    "file_id": largest_photo.get("file_id"),
+                    "mimetype": "image/jpeg",
+                    "download_ref": largest_photo.get("file_id", ""),
+                    "size": largest_photo.get("file_size"),
                     "file_type": "photo",
-                    "mime_type": "image/jpeg",
-                    "file_size": largest_photo.get("file_size")
                 })
 
-        # Handle document attachments
         if "document" in message:
             doc = message["document"]
             files.append({
-                "file_id": doc.get("file_id"),
+                "mimetype": doc.get("mime_type", "application/octet-stream"),
+                "download_ref": doc.get("file_id", ""),
+                "name": doc.get("file_name"),
+                "size": doc.get("file_size"),
                 "file_type": "document",
-                "mime_type": doc.get("mime_type", "application/octet-stream"),
-                "file_name": doc.get("file_name"),
-                "file_size": doc.get("file_size")
             })
 
-        # Handle video attachments
         if "video" in message:
             video = message["video"]
             files.append({
-                "file_id": video.get("file_id"),
+                "mimetype": video.get("mime_type", "video/mp4"),
+                "download_ref": video.get("file_id", ""),
+                "size": video.get("file_size"),
                 "file_type": "video",
-                "mime_type": video.get("mime_type", "video/mp4"),
-                "file_size": video.get("file_size")
             })
 
-        # Handle voice messages
         if "voice" in message:
             voice = message["voice"]
             files.append({
-                "file_id": voice.get("file_id"),
+                "mimetype": voice.get("mime_type", "audio/ogg"),
+                "download_ref": voice.get("file_id", ""),
+                "size": voice.get("file_size"),
                 "file_type": "voice",
-                "mime_type": voice.get("mime_type", "audio/ogg"),
-                "file_size": voice.get("file_size")
             })
 
-        # Construct display name for potential auto-linking
-        first_name = from_user.get("first_name", "")
-        last_name = from_user.get("last_name", "")
-        display_name = f"{first_name} {last_name}".strip() if last_name else first_name
+        # Album signal: Telegram delivers each photo of an album as its own
+        # webhook event sharing this id. Treated as "multiple images" by the
+        # processor even though each event has len(files) == 1.
+        media_group_id = message.get("media_group_id")
 
         return PlatformEvent(
             platform="telegram",
@@ -406,5 +407,6 @@ class TelegramConnector(PlatformConnector):
             message_text=message_text,
             space_id=chat_id,
             files=files,
+            media_group_id=media_group_id,
             raw_event=data
         )

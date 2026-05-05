@@ -49,6 +49,17 @@ class Settings(BaseSettings):
         """Check if GCS file upload is configured."""
         return bool(self.gcs_bucket_name)
 
+    # Image intake limits
+    max_image_size_mb: int = 20
+    allowed_image_mime_types: list[str] = [
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "image/heic",
+        "image/heif",
+    ]
+
     # API settings
     api_v1_prefix: str = "/api/v1"
 
