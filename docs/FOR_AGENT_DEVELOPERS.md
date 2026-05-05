@@ -625,17 +625,24 @@ gcloud secrets add-iam-policy-binding ${BOT_ACCOUNT_ID}-telegram-token \
 
 ### Step 3: Configure Telegram Webhook
 
-Set up the webhook to point to your middleware:
+The middleware webhook URL is **per-agent**: each Telegram bot must register
+its own URL of the form `/api/v1/telegram/events/{AGENT_ID}`, where
+`{AGENT_ID}` is the Firestore document ID of the agent that owns this bot.
+Telegram's webhook payload doesn't identify the receiving bot, so the URL
+is how the middleware knows which agent to dispatch to.
 
 ```bash
 # Generate a secure random secret for webhook verification
 export WEBHOOK_SECRET=$(openssl rand -base64 32)
 
+# Substitute your agent's Firestore document ID
+export AGENT_ID=your-agent-firestore-doc-id
+
 # Set the webhook
 curl -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
   -H "Content-Type: application/json" \
   -d "{
-    \"url\": \"https://YOUR_MIDDLEWARE_URL/api/v1/telegram/events\",
+    \"url\": \"https://YOUR_MIDDLEWARE_URL/api/v1/telegram/events/${AGENT_ID}\",
     \"secret_token\": \"${WEBHOOK_SECRET}\"
   }"
 
@@ -738,9 +745,10 @@ python scripts/link_identities.py \
 
 When a user messages your Telegram bot:
 
-1. Telegram sends the update to the middleware's `/api/v1/telegram/events` endpoint
+1. Telegram sends the update to the middleware's `/api/v1/telegram/events/{AGENT_ID}` endpoint
+   (the bot's webhook URL is registered with the agent's Firestore document ID)
 2. Middleware verifies the webhook secret token
-3. Middleware looks up your agent in Firestore (finds first enabled Telegram agent)
+3. Middleware looks up the agent in Firestore by the ID in the URL path
 4. Middleware retrieves the bot token from Secret Manager
 5. Middleware creates/retrieves a session for the user
 6. Middleware sends the message to your Vertex AI agent
@@ -772,7 +780,8 @@ You can have multiple platforms enabled (e.g., Slack + Google Chat + Telegram).
 
 **Bot doesn't respond to messages:**
 - Verify webhook is set correctly: `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`
-- Check webhook URL points to correct middleware: `https://YOUR_MIDDLEWARE/api/v1/telegram/events`
+- Check webhook URL points to the per-agent path: `https://YOUR_MIDDLEWARE/api/v1/telegram/events/{AGENT_ID}`
+  (using the wrong agent ID — or the old `/telegram/events` path with no ID — will not route)
 - Verify secret token matches in webhook config and Firestore
 - Check middleware logs for errors
 
@@ -1104,11 +1113,12 @@ gcloud secrets add-iam-policy-binding your-agent-telegram-token \
   --role="roles/secretmanager.secretAccessor" \
   --project=your-agent-project
 
-# 5. Set Telegram webhook
+# 5. Set Telegram webhook (path includes the agent's Firestore document ID)
 export WEBHOOK_SECRET=$(openssl rand -base64 32)
+export AGENT_ID=your-agent-firestore-doc-id
 curl -X POST "https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook" \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://YOUR_MIDDLEWARE_URL/api/v1/telegram/events","secret_token":"'$WEBHOOK_SECRET'"}'
+  -d '{"url":"https://YOUR_MIDDLEWARE_URL/api/v1/telegram/events/'$AGENT_ID'","secret_token":"'$WEBHOOK_SECRET'"}'
 
 # 6. Add Telegram platform to agent in Firestore
 # Use Firestore console to add to platforms array:

@@ -435,11 +435,15 @@ SECTION 4: TELEGRAM SETUP (If using Telegram)
     # Generate a random secret token for webhook verification
     export WEBHOOK_SECRET=$(openssl rand -base64 32)
 
+    # The webhook URL is per-agent: it must include the agent's Firestore
+    # document ID so the middleware can route messages to the correct agent.
+    export AGENT_ID=<your-agent-firestore-doc-id>
+
     # Set the webhook
     curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
       -H "Content-Type: application/json" \
       -d '{
-        "url": "https://YOUR_MIDDLEWARE_URL/api/v1/telegram/events",
+        "url": "https://YOUR_MIDDLEWARE_URL/api/v1/telegram/events/'$AGENT_ID'",
         "secret_token": "'$WEBHOOK_SECRET'"
       }'
 

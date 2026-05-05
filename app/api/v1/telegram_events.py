@@ -13,23 +13,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 
 
-@router.post("/events")
+@router.post("/events/{agent_id}")
 async def telegram_events(
+    agent_id: str,
     request: Request,
     background_tasks: BackgroundTasks,
     message_processor: MessageProcessorV2 = Depends(get_message_processor_v2),
     firestore: FirestoreService = Depends(get_firestore_service),
 ):
     """
-    Telegram Bot API webhook endpoint.
+    Telegram Bot API webhook endpoint, scoped to a specific agent.
 
-    Handles message updates from Telegram. For MVP, uses the first enabled
-    Telegram agent. In production with multiple Telegram bots, could match
-    by bot username or separate webhook URLs per bot.
+    The agent_id is encoded in the URL because Telegram's webhook payload
+    does not identify which bot received the message — Telegram simply POSTs
+    each event to the URL registered for that bot's token. Each agent must
+    therefore register a per-agent webhook URL of the form
+    `/api/v1/telegram/events/{agent_id}` via Telegram's setWebhook API.
 
-    Returns 200 immediately. Processes events in background.
+    Returns 200 immediately (even on errors) so Telegram does not retry.
+    Processes events in the background.
 
     Args:
+        agent_id: Firestore agent document ID (from URL path)
         request: FastAPI request object
         background_tasks: FastAPI background tasks
         message_processor: Message processor service (v2)
@@ -66,25 +71,15 @@ async def telegram_events(
             return JSONResponse(content={"ok": True})
 
         logger.info(
-            f"Received Telegram message from user {from_user.get('id')}: "
+            f"Received Telegram message for agent {agent_id} "
+            f"from user {from_user.get('id')}: "
             f"{message.get('text', '<non-text message>')}"
         )
 
-        # Step 1: Find enabled Telegram agent
-        # For MVP: Find first enabled Telegram agent
-        # TODO: In production with multiple Telegram bots, match by bot username
-        # or use separate webhook URLs (e.g., /telegram/events/<agent_id>)
-        agents = await firestore.list_agents()
-        agent = None
-
-        for candidate_agent in agents:
-            config = candidate_agent.get_telegram_config()
-            if config and config.enabled:
-                agent = candidate_agent
-                break
-
+        # Step 1: Look up the agent named in the URL path.
+        agent = await firestore.get_agent_by_id(agent_id)
         if not agent:
-            logger.error("No enabled Telegram agent found")
+            logger.error(f"Telegram webhook hit for unknown agent_id: {agent_id}")
             return JSONResponse(content={"ok": True})
 
         # Step 2: Get Telegram platform config from agent
