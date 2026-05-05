@@ -75,86 +75,108 @@ def _service() -> ScheduledJobService:
 # ---------------------------------------------------------------------------
 # Tool definitions
 # ---------------------------------------------------------------------------
+# The user_name field description is shared between create and list. It is
+# load-bearing: the LLM has no other way to know which user the reminder is
+# for, and prior to this design it was guessing the user's display name and
+# putting it in user_id, which produced silently-failing duplicate jobs.
+_USER_NAME_DESC = (
+    "The user's name EXACTLY as it appears in the '[From: <name>] ...' prefix "
+    "of the user's most recent message. Copy that value verbatim. Do NOT pass "
+    "platform-specific display names (e.g. Slack handles), email addresses, "
+    "Slack/Google Chat/Telegram IDs, or paraphrased versions of the name. "
+    "If you cannot see a '[From: ...]' prefix, do not call this tool — ask "
+    "the user who they are first."
+)
+
 TOOLS: list[Tool] = [
     Tool(
         name="create_scheduled_reminder",
         description=(
-            "Create a recurring scheduled reminder for a user. The reminder runs on a "
-            "cron schedule and sends the prompt to this agent at each tick; the agent's "
-            "response is delivered to the user on their preferred platform. "
-            "agent_id is determined automatically from authentication and does not need "
-            "to be passed."
+            "Create a recurring scheduled reminder for the user you are currently "
+            "talking to. The reminder runs on a cron schedule; at each tick, the "
+            "prompt is sent to this agent and the agent's response is delivered "
+            "to the user. Use this when the user asks for things like 'remind me "
+            "every weekday at 9 AM to review my goals'.\n\n"
+            "agent_id is resolved automatically from authentication — do not pass "
+            "it. user_name resolves to the unified user record server-side."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "Human-readable name (e.g. 'Daily goal review')",
+                    "description": "Short human-readable name for the reminder (e.g. 'Daily goal review'). Shown back to the user when they list reminders.",
                 },
                 "prompt": {
                     "type": "string",
-                    "description": "Message sent to the agent at each tick",
+                    "description": "The exact message that will be sent to this agent at each scheduled tick. Write it as if the user is asking it (e.g. 'What should I focus on today?'), since the agent will respond as if to a fresh user message.",
                 },
                 "schedule": {
                     "type": "string",
-                    "description": "Cron expression — minute hour dom month dow (e.g. '0 9 * * 1-5' for 9 AM weekdays)",
+                    "description": "5-field cron expression: 'minute hour day-of-month month day-of-week' (e.g. '0 9 * * 1-5' for 9 AM Mon-Fri).",
                 },
-                "user_id": {
+                "user_name": {
                     "type": "string",
-                    "description": "Unified user ID from the users collection",
+                    "description": _USER_NAME_DESC,
                 },
                 "timezone": {
                     "type": "string",
-                    "description": "IANA timezone (e.g. 'America/New_York'). Defaults to UTC.",
+                    "description": "IANA timezone the cron is evaluated in (e.g. 'America/New_York'). Defaults to UTC.",
                 },
                 "output_platform": {
                     "type": "string",
                     "enum": ["slack", "google_chat", "telegram"],
                     "description": (
                         "Platform to deliver the reminder on. If omitted, defaults to "
-                        "the user's most recently used platform with this agent (or "
-                        "'slack' if the user has no session yet)."
+                        "whichever platform the user most recently chatted with this "
+                        "agent on (or 'slack' if they have no session yet). Only set "
+                        "this if the user explicitly asks for a different platform."
                     ),
                 },
             },
-            "required": ["name", "prompt", "schedule", "user_id"],
+            "required": ["name", "prompt", "schedule", "user_name"],
         },
     ),
     Tool(
         name="list_scheduled_reminders",
-        description="List all scheduled reminders this agent has created for a user.",
+        description=(
+            "List all scheduled reminders this agent has created for the user you "
+            "are currently talking to. Returns each reminder's job_id (needed to "
+            "update or delete it), name, schedule, and current state."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
-                "user_id": {
+                "user_name": {
                     "type": "string",
-                    "description": "Unified user ID from the users collection",
+                    "description": _USER_NAME_DESC,
                 },
             },
-            "required": ["user_id"],
+            "required": ["user_name"],
         },
     ),
     Tool(
         name="update_scheduled_reminder",
         description=(
-            "Update an existing scheduled reminder. Only the fields you pass are changed. "
-            "The job must belong to the calling agent."
+            "Update an existing scheduled reminder. Only the fields you pass are "
+            "changed; everything else is preserved. To find the job_id, call "
+            "list_scheduled_reminders first. The job must have been created by "
+            "this agent."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "job_id": {
                     "type": "string",
-                    "description": "Job ID returned by list_scheduled_reminders",
+                    "description": "The reminder's id, as returned by list_scheduled_reminders. Not the reminder's name.",
                 },
-                "name": {"type": "string"},
-                "prompt": {"type": "string"},
-                "schedule": {"type": "string", "description": "New cron expression"},
-                "timezone": {"type": "string", "description": "New IANA timezone"},
+                "name": {"type": "string", "description": "New display name."},
+                "prompt": {"type": "string", "description": "New scheduled prompt text."},
+                "schedule": {"type": "string", "description": "New cron expression."},
+                "timezone": {"type": "string", "description": "New IANA timezone."},
                 "enabled": {
                     "type": "boolean",
-                    "description": "Set false to pause the reminder, true to resume",
+                    "description": "Set false to pause the reminder (it stays in the system but stops firing); true to resume.",
                 },
             },
             "required": ["job_id"],
@@ -162,13 +184,18 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="delete_scheduled_reminder",
-        description="Delete a scheduled reminder. The job must belong to the calling agent.",
+        description=(
+            "Permanently delete a scheduled reminder. To find the job_id, call "
+            "list_scheduled_reminders first. The job must have been created by "
+            "this agent. There is no undo — if the user might want it back, "
+            "consider update_scheduled_reminder with enabled=false instead."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
                 "job_id": {
                     "type": "string",
-                    "description": "Job ID returned by list_scheduled_reminders",
+                    "description": "The reminder's id, as returned by list_scheduled_reminders.",
                 },
             },
             "required": ["job_id"],
@@ -208,9 +235,35 @@ async def _resolve_default_platform(user_id: str, agent_id: str) -> str:
     return "slack"
 
 
+async def _resolve_user_id_from_name(user_name: Any) -> str:
+    """Resolve the LLM-supplied user_name to a unified user_id.
+
+    The MCP tool schema asks the LLM to send the name from the
+    `[From: <name>] ...` message prefix. The middleware does the lookup so
+    the LLM never has to know (or guess) the Firestore document ID. If the
+    name doesn't resolve, we raise with a message that nudges the LLM to
+    fix what it sent — this is the validation that makes the bug class
+    "LLM put the display name in user_id" impossible from the new path.
+    """
+    if not isinstance(user_name, str) or not user_name.strip():
+        raise ValueError(
+            "user_name is required. Pass the user's name from the "
+            "'[From: <name>] ...' prefix of their most recent message."
+        )
+    name = user_name.strip()
+    user = await _firestore().get_user_by_primary_name(name)
+    if not user:
+        raise ValueError(
+            f"No user found with name {name!r}. Pass the exact name from the "
+            f"'[From: <name>] ...' prefix of the user's most recent message — "
+            f"do not paraphrase, translate, or use a platform handle."
+        )
+    return user.id
+
+
 async def _handle_create(args: dict[str, Any]) -> str:
     agent = _agent()
-    user_id = args["user_id"]
+    user_id = await _resolve_user_id_from_name(args.get("user_name"))
     output_platform = args.get("output_platform")
     if not output_platform:
         output_platform = await _resolve_default_platform(user_id, agent.id)
@@ -231,7 +284,8 @@ async def _handle_create(args: dict[str, Any]) -> str:
 
 async def _handle_list(args: dict[str, Any]) -> str:
     agent = _agent()
-    jobs = await _service().list_jobs(agent_id=agent.id, user_id=args["user_id"])
+    user_id = await _resolve_user_id_from_name(args.get("user_name"))
+    jobs = await _service().list_jobs(agent_id=agent.id, user_id=user_id)
     return json.dumps([_job_to_dict(j) for j in jobs])
 
 

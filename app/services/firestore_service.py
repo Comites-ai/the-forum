@@ -654,6 +654,66 @@ class FirestoreService:
             logger.error(f"Error fetching user by email {email}: {e}")
             return None
 
+    async def get_user_by_primary_name(self, primary_name: str) -> Optional[User]:
+        """
+        Find a user by their primary_name (the canonical display name shown
+        in the `[From: <name>] ...` message prefix the agent sees).
+
+        Used by the scheduler MCP server: the agent passes the user's name
+        from the message prefix, and the middleware resolves it to a real
+        user_id before creating/listing jobs. This avoids exposing the
+        Firestore document ID to the LLM at all.
+
+        Behavior on multiple matches: logs a warning and returns the FIRST
+        match. primary_name is not enforced unique today, but the only way
+        to hit a collision is if two real humans share an exact name. If
+        that happens, treat as an operational issue (rename one, or add
+        disambiguation upstream) — the LLM has no way to pick correctly.
+
+        Args:
+            primary_name: Exact primary_name as stored on the user doc
+
+        Returns:
+            User if exactly one match exists; the first match (with a
+            warning logged) if multiple exist; None if no match
+        """
+        try:
+            query = (
+                self.client.collection(self.users_collection)
+                .where("primary_name", "==", primary_name)
+                .limit(2)
+            )
+            docs = [d async for d in query.stream()]
+
+            if not docs:
+                logger.debug(f"No user found for primary_name: {primary_name!r}")
+                return None
+            if len(docs) > 1:
+                logger.warning(
+                    f"Multiple users have primary_name={primary_name!r}; "
+                    f"returning the first ({docs[0].id}). "
+                    f"Resolve by renaming one of the users."
+                )
+
+            data = docs[0].to_dict()
+
+            # Handle Firestore timestamps (mirrors get_user_by_email)
+            for field in ["created_at", "updated_at"]:
+                if field in data and data[field] and hasattr(data[field], "timestamp"):
+                    data[field] = datetime.fromtimestamp(data[field].timestamp())
+            if "identities" in data:
+                for identity in data["identities"]:
+                    if "linked_at" in identity and hasattr(identity["linked_at"], "timestamp"):
+                        identity["linked_at"] = datetime.fromtimestamp(identity["linked_at"].timestamp())
+
+            user = User(**data, id=docs[0].id)
+            logger.debug(f"Found user {user.id} for primary_name: {primary_name!r}")
+            return user
+
+        except Exception as e:
+            logger.error(f"Error fetching user by primary_name {primary_name!r}: {e}")
+            return None
+
     async def add_user_identity(
         self, user_id: str, identity: PlatformIdentity
     ) -> None:
