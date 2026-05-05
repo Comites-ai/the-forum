@@ -53,6 +53,10 @@ ERR_STREAM_BROKEN = (
     "I lost my train of thought halfway through. "
     "Could you ask that again?"
 )
+NOTE_NON_IMAGE_FILES_DROPPED = (
+    "Note to Agent:  The user attempted to send you a file that was not "
+    "an image, but we removed it since you can't handle files like that."
+)
 
 
 class MessageProcessorV2:
@@ -146,7 +150,15 @@ class MessageProcessorV2:
                 space_id=event.space_id
             )
 
-            # Apply the single-image / non-image rules. If this returns None
+            # Track whether any non-image files were dropped so we can
+            # tell the agent (otherwise it sees a request that the user
+            # phrased around a file they expected it to look at).
+            had_non_image_files = any(
+                not f.get("mimetype", "").startswith("image/")
+                for f in event.files
+            )
+
+            # Apply the single-image / non-image rules. If this returns False
             # we've already messaged the user and should not call the agent.
             image_payload = await self._apply_file_rules(
                 event=event,
@@ -154,7 +166,8 @@ class MessageProcessorV2:
                 conversation_id=conversation_id,
             )
             if image_payload is False:
-                # False sentinel = hard reject (multi-image): no agent call.
+                # False sentinel = hard reject (multi-image / failed intake):
+                # no agent call.
                 return
             # image_payload is None (no image) or a dict (single image ready).
 
@@ -170,6 +183,10 @@ class MessageProcessorV2:
                     logger.info("Embedded 1 image reference in message")
                 # base64 path: handled implicitly — the agent receives the
                 # image via the same prompt structure already used today.
+
+            if had_non_image_files:
+                message_text = f"{NOTE_NON_IMAGE_FILES_DROPPED}\n\n{message_text}"
+                logger.info("Prepended non-image-files note to agent prompt")
 
             session_id = await self._get_or_create_session(
                 user_id=user.id,
