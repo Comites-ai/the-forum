@@ -251,14 +251,18 @@ class MessageProcessorV2:
         Enforce the file-handling rules.
 
         Returns:
-            - False if this is a hard reject (multi-image): caller must NOT
-              call the agent. The user has already been messaged.
-            - None if there are zero images to forward. Caller should call
-              the agent with text only. (Non-image attachments may have been
-              rejected already; that's fine, we still forward the text.)
+            - False if this is a hard reject: caller must NOT call the
+              agent. The user has already been messaged. Triggered by
+              multi-image submissions OR by an image being attached but
+              failing intake (download / size / MIME / GCS).
+            - None if there is nothing image-related to forward and
+              proceeding to the agent with text only is correct. This
+              covers "no files" and "only non-image files" — in the
+              latter case the user has already received the non-image
+              rejection and the agent should still answer the text.
             - dict with image payload (either {'gcs_uri','mime_type'} or
-              {'data','mime_type'} for base64 fallback) if a single image is
-              ready to forward. Caller embeds it in the prompt.
+              {'data','mime_type'} for base64 fallback) if a single image
+              is ready to forward. Caller embeds it in the prompt.
         """
         images = [
             f for f in event.files
@@ -297,11 +301,18 @@ class MessageProcessorV2:
         if not images:
             return None
 
-        return await self._intake_single_image(
+        result = await self._intake_single_image(
             file_dict=images[0],
             connector=connector,
             conversation_id=conversation_id,
         )
+        if result is None:
+            # Image was attached but couldn't be processed. The user has
+            # already received a specific error message; calling the agent
+            # text-only would produce a confused reply ("you mentioned an
+            # image but I don't see it"), so we hard-reject instead.
+            return False
+        return result
 
     async def _intake_single_image(
         self,
