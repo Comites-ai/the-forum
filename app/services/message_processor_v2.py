@@ -57,6 +57,11 @@ NOTE_NON_IMAGE_FILES_DROPPED = (
     "Note to Agent:  The user attempted to send you a file that was not "
     "an image, but we removed it since you can't handle files like that."
 )
+ERR_BROKEN_TOOL_TEMPLATE = (
+    "Oh no, I appear to have a broken tool. "
+    "I got stuck when I tried to {tool_name}. "
+    "Could you tell the person that made me about this problem?"
+)
 
 
 class MessageProcessorV2:
@@ -217,9 +222,21 @@ class MessageProcessorV2:
                 image_count = 1 if image_payload else 0
                 logger.warning(
                     f"Empty response from agent for user {user.id} "
-                    f"(images: {image_count}, message_length: {len(message_text)})"
+                    f"(images: {image_count}, "
+                    f"message_length: {len(message_text)}, "
+                    f"functions_called: {response.function_names or '[]'})"
                 )
-                if image_count > 0:
+                # Production data shows the dominant empty-response cause is
+                # "agent looped on tool calls and never produced final text."
+                # When that's the case, name the most recent tool so the user
+                # can flag it to the agent's owner. Otherwise fall back to
+                # the older canned messages.
+                if response.function_names:
+                    last_tool = response.function_names[-1]
+                    response_text = ERR_BROKEN_TOOL_TEMPLATE.format(
+                        tool_name=last_tool
+                    )
+                elif image_count > 0:
                     response_text = (
                         "I wasn't able to process that request. "
                         "I may not be set up to handle images."

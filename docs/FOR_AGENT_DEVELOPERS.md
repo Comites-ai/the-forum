@@ -1011,6 +1011,94 @@ gcloud firestore documents list sessions --limit=10
 
 ---
 
+## How the Middleware Handles Agent Errors
+
+The middleware does its best to keep users from seeing raw failures.
+Most error handling happens in the middleware so agent code can stay
+simple. A few cases are worth knowing about as an agent developer.
+
+### Empty agent responses & the "broken tool" message
+
+If your agent's response stream finishes without producing any text,
+the middleware will not leave the user hanging. The most common cause
+in production is an agent that calls one or more tools but never wraps
+up with a text reply (a "tool loop" — usually an agent-prompt issue,
+not a middleware issue).
+
+When that happens, the middleware looks at the names of the tools the
+agent tried to call and replies to the user with:
+
+> Oh no, I appear to have a broken tool. I got stuck when I tried to
+> `<tool_name>`. Could you tell the person that made me about this
+> problem?
+
+`<tool_name>` is the name of the most recent function the agent tried
+to invoke before its turn ended without text. If users start reporting
+this message, that's your signal to look at:
+
+1. **Your agent's prompt** — does it explicitly require a text response
+   after tool calls? Many tool-loop cases are fixed by adding an
+   instruction like *"After running tools, always summarise the result
+   in a short message to the user."*
+2. **The named tool** — is it returning correctly? Is it raising an
+   exception that's confusing the agent? Check the tool's logs.
+3. **Token / iteration limits** — if the agent runs out of tokens or
+   iteration budget mid-loop, it can finish without writing text.
+
+The middleware logs every empty-response event with a chunk-type
+breakdown and the list of function names called. Search Cloud Run
+logs for `Empty text extracted` to find these:
+
+```bash
+gcloud logging read \
+  'resource.type="cloud_run_revision"
+   AND resource.labels.service_name="slack-vertex-middleware"
+   AND textPayload:"Empty text extracted"' \
+  --project=vertex-ai-middleware-prod \
+  --format='value(timestamp,textPayload)' \
+  --limit=50
+```
+
+The middleware does **not** automatically retry these failures, because
+the tool calls the agent already made may have side effects (creating
+records, sending notifications, etc.) and replaying the same turn
+could double them up. Fix the underlying agent issue rather than
+relying on retries.
+
+### Other empty-response branches
+
+If the stream ends with no chunks at all (a different failure shape
+that has not been observed in production but is handled defensively),
+the user gets a generic *"I wasn't able to process that request"*
+message instead of the broken-tool one. If the user attached an image
+when this happens, the middleware adds *"I may not be set up to
+handle images"* — usually a sign your agent's prompt or model doesn't
+have image support enabled.
+
+### File / image handling
+
+The middleware enforces a single-image policy and rejects files it
+cannot send to the agent **before** calling your agent:
+
+- **Non-image attachments** (PDFs, videos, audio, etc.) → user gets
+  *"Sorry, it appears you sent me a file type that I can't read..."*
+  and the agent receives the user's text with a `Note to Agent:`
+  prefix explaining that a non-image file was dropped, so your agent
+  knows the user expected an attachment to be attached.
+- **More than one image** (or a Telegram album) → user gets
+  *"Sorry, I can only handle one image at a time..."* and the agent
+  is **not** called.
+- **A single image that fails to download or upload** → user gets a
+  specific error (download / size / unsupported MIME / GCS save) and
+  the agent is **not** called (so it doesn't reply as if there were no
+  image).
+
+Your agent only ever sees: zero images plus text, or exactly one image
+embedded as a `[IMAGE: gs://... | <mime>]` reference at the top of the
+prompt.
+
+---
+
 ## Full Documentation
 
 See the middleware repo for complete documentation:

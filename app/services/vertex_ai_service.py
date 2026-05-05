@@ -18,16 +18,31 @@ logger = logging.getLogger(__name__)
 
 
 class VertexAIResponse:
-    """Wrapper for Vertex AI agent response."""
+    """Wrapper for Vertex AI agent response with diagnostic metadata."""
 
-    def __init__(self, text: str):
+    def __init__(
+        self,
+        text: str,
+        chunk_count: int = 0,
+        breakdown: Optional[dict] = None,
+        function_names: Optional[list] = None,
+    ):
         """
         Initialize response.
 
         Args:
-            text: Response text from the agent
+            text: Response text from the agent (may be empty).
+            chunk_count: Number of chunks received from the stream.
+            breakdown: Per-part-type counts (text/function_call/...).
+            function_names: Names of every function_call part observed,
+                in stream order. Used by MessageProcessorV2 to surface a
+                "broken tool" message naming the tool the agent got stuck
+                on when it never produced final text.
         """
         self.text = text
+        self.chunk_count = chunk_count
+        self.breakdown = breakdown or {}
+        self.function_names = function_names or []
 
 
 class VertexAIService:
@@ -177,7 +192,7 @@ class VertexAIService:
             chunk_count = len(chunks)
             stream_error = stream_state["stream_error"]
 
-            full_response = self._extract_text_from_chunks(
+            full_response, breakdown, function_names = self._extract_text_from_chunks(
                 chunks, message_length=message_length
             )
 
@@ -214,7 +229,12 @@ class VertexAIService:
                 f"({chunk_count} chunks, {len(full_response)} chars)"
             )
 
-            return VertexAIResponse(text=full_response)
+            return VertexAIResponse(
+                text=full_response,
+                chunk_count=chunk_count,
+                breakdown=breakdown,
+                function_names=function_names,
+            )
 
         except ResourceExhausted as e:
             logger.warning(
@@ -244,7 +264,7 @@ class VertexAIService:
 
     def _extract_text_from_chunks(
         self, chunks: list, message_length: int = 0
-    ) -> str:
+    ):
         """
         Extract text content from Reasoning Engine response chunks.
 
@@ -252,19 +272,21 @@ class VertexAIService:
         function calls, function responses, and text content.
         We extract only the final text content.
 
-        Logs a breakdown by part type ('text', 'function_call',
-        'function_response', 'other') to help diagnose empty-response
-        cases — most often the agent emitted only function calls/responses
-        and never produced final text.
+        Also collects diagnostics (per-part-type counts and the names of
+        every function_call) so MessageProcessorV2 can show a specific
+        "broken tool" message when the agent looped on tools and never
+        produced final text — the dominant empty-response failure mode
+        in production.
 
         Args:
             chunks: List of JSON strings from the stream
             message_length: Length of the original message (for diagnostic logging)
 
         Returns:
-            Extracted text content
+            Tuple of (extracted_text, breakdown_dict, function_names_list).
         """
         text_parts = []
+        function_names = []
         chunk_count = len(chunks)
         breakdown = {
             "text": 0,
@@ -286,6 +308,11 @@ class VertexAIService:
                         text_parts.append(part["text"])
                     elif "function_call" in part:
                         breakdown["function_call"] += 1
+                        fc = part.get("function_call")
+                        if isinstance(fc, dict):
+                            name = fc.get("name")
+                            if name:
+                                function_names.append(name)
                     elif "function_response" in part:
                         breakdown["function_response"] += 1
                     else:
@@ -309,16 +336,21 @@ class VertexAIService:
             f"other={breakdown['other']} "
             f"unparseable={breakdown['unparseable']}"
         )
+        names_str = ",".join(function_names) if function_names else "(none)"
 
         if not result.strip() and chunk_count > 0:
             first_chunk_preview = chunks[0][:500] if chunks else "(no chunks)"
             logger.warning(
                 f"Empty text extracted from {chunk_count} chunks. "
                 f"Breakdown: {breakdown_str}. "
+                f"Functions called: {names_str}. "
                 f"Input message was {message_length} chars. "
                 f"First chunk preview: {first_chunk_preview}"
             )
         else:
-            logger.debug(f"Chunk breakdown ({chunk_count} chunks): {breakdown_str}")
+            logger.debug(
+                f"Chunk breakdown ({chunk_count} chunks): {breakdown_str}, "
+                f"functions: {names_str}"
+            )
 
-        return result
+        return result, breakdown, function_names
