@@ -27,7 +27,7 @@ spec:
         - name: GCP_LOCATION
           value: us-central1
         - name: GCS_BUCKET_NAME
-          value: playingwithai-460811-slack-files
+          value: vertex-ai-middleware-prod-slack-files
         - name: SLACK_SIGNING_SECRET
           valueFrom:
             secretKeyRef:

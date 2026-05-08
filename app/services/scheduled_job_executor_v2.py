@@ -155,21 +155,56 @@ class ScheduledJobExecutorV2:
                     text=formatted_message,
                 )
                 logger.info(f"Sent response to {job.output_platform} for job {job_id}")
+
+                # Step 11: Mark success and release lock
+                await self.firestore.release_job_execution_lock(job_id, success=True)
+
+                # Clear any pending retry (if this was a retry execution)
+                if job.retry_at:
+                    await self.firestore.update_scheduled_job(job_id, {
+                        "retry_at": None,
+                        "retry_reason": None,
+                    })
+                    logger.info(f"Cleared retry for job {job_id} after successful execution")
+
+                logger.info(f"Successfully executed job {job_id}")
             else:
-                logger.info(f"No response from agent for job {job_id}, skipping message")
+                # Agent returned empty response - treat as failure
+                if response.has_unanswered_function_calls:
+                    tool_name = response.function_names[-1] if response.function_names else "unknown"
+                    error_msg = f"Tool '{tool_name}' did not respond (possible permission issue)"
+                elif response.has_rate_limit_error:
+                    tool_info = next(
+                        (e for e in response.function_errors if e.get("error_type") == "rate_limit"),
+                        {}
+                    )
+                    tool_name = tool_info.get("tool_name", "unknown")
+                    error_msg = f"Tool '{tool_name}' hit rate limit"
+                else:
+                    error_msg = f"Empty response ({response.chunk_count} chunks)"
 
-            # Step 11: Mark success and release lock
-            await self.firestore.release_job_execution_lock(job_id, success=True)
+                logger.warning(f"Job {job_id} failed: {error_msg}")
+                await self.firestore.release_job_execution_lock(job_id, success=False, error=error_msg)
 
-            # Clear any pending retry (if this was a retry execution)
-            if job.retry_at:
-                await self.firestore.update_scheduled_job(job_id, {
-                    "retry_at": None,
-                    "retry_reason": None,
-                })
-                logger.info(f"Cleared retry for job {job_id} after successful execution")
+                # Notify user every 1440 consecutive failures (~24 hours if job runs every minute)
+                new_failure_count = job.consecutive_failures + 1
+                if new_failure_count % 1440 == 0:
+                    last_success = job.last_execution_at
+                    if last_success:
+                        since_str = last_success.strftime("%Y-%m-%d %H:%M UTC")
+                    else:
+                        since_str = "it was created"
 
-            logger.info(f"Successfully executed job {job_id}")
+                    try:
+                        conversation_id = await connector.open_conversation(recipient_id)
+                        await connector.send_message(
+                            recipient_id=conversation_id,
+                            text=f"My scheduled job *{job.name}* has not been working since {since_str}.",
+                        )
+                        logger.info(f"Sent failure notification for job {job_id} ({new_failure_count} failures)")
+                    except Exception as notify_err:
+                        logger.warning(f"Failed to send failure notification for job {job_id}: {notify_err}")
+
             return True
 
         except ResourceExhaustedError as e:

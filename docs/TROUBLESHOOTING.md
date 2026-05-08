@@ -16,11 +16,91 @@ Common issues and solutions for the Slack to Vertex AI middleware.
 
 ## User-Facing Error Messages
 
-These are error messages that users see in Slack when something goes wrong.
+These are error messages that users see in Slack/Google Chat/Telegram when something goes wrong.
+
+### "The first tool I called ({tool_name}) didn't respond at all..."
+
+**When it appears**: The agent called a tool but never received a response from it.
+
+**Common causes**:
+
+1. **Tool lacks permissions**: The agent's service account doesn't have IAM permissions to call the underlying API
+   - **Solution**: Grant the Reasoning Engine's service account the required roles (e.g., `roles/sheets.editor` for Google Sheets)
+
+2. **Tool crashed**: The tool threw an exception before returning
+   - **Solution**: Check the Reasoning Engine logs for stack traces
+
+3. **Network/timeout issues**: The tool's external API call timed out
+   - **Solution**: Check the external service status; consider adding retry logic in the tool
+
+**How to investigate**:
+```bash
+gcloud logging read \
+  'resource.type="cloud_run_revision"
+   AND textPayload:"function_call=1 function_response=0"' \
+  --project=vertex-ai-middleware-prod \
+  --limit=20
+```
+
+The pattern `function_call=N function_response=0` means N tools were called but none responded.
+
+---
+
+### "One of my tools ({tool_name}) hit a rate limit..."
+
+**When it appears**: A tool returned an error containing rate limit indicators (429, quota, etc.).
+
+**Common causes**:
+
+1. **External API rate limited**: The tool called an API that throttled requests
+2. **Quota exceeded**: Project hit usage limits for an API
+
+**Solutions**:
+
+1. Wait a minute and try again
+2. Check and increase quotas for the affected API
+3. Add rate limiting/backoff logic in the tool
+
+---
+
+### "One of my tools ({tool_name}) doesn't have the access it needs..."
+
+**When it appears**: A tool returned a 403/permission denied error.
+
+**Common causes**:
+
+1. **Missing IAM roles**: Service account lacks required permissions
+2. **Resource not shared**: The resource (e.g., Google Sheet) isn't shared with the service account
+3. **API not enabled**: The required GCP API isn't enabled in the project
+
+**Solutions**:
+
+1. Check the service account's IAM bindings
+2. Share resources (Sheets, Docs, etc.) with the service account email
+3. Enable the required API: `gcloud services enable <api>.googleapis.com`
+
+---
+
+### "Oh no, I appear to have a broken tool..."
+
+**When it appears**: The agent called tools but the stream ended without producing any text response. This is a fallback message when no specific error type could be detected.
+
+**Common causes**:
+
+1. **Tool loop**: Agent keeps calling tools without summarizing results
+   - **Solution**: Update agent prompt to require text responses after tool calls
+
+2. **Token/iteration limits**: Agent ran out of budget mid-loop
+   - **Solution**: Simplify the task or increase limits
+
+3. **Tool returned confusing output**: Tool succeeded but output confused the agent
+   - **Solution**: Check tool outputs in logs
+
+---
 
 ### "I didn't like that request. Did you send me a file when I'm not set up for it? Or exceeded the character limit?"
 
-**When it appears**: The agent returned an empty response.
+**When it appears**: The agent returned an empty response with no tool calls (generic fallback).
 
 **Common causes**:
 
@@ -298,6 +378,72 @@ return JSONResponse(content={"success": True})
    ```bash
    grep GCP_ .env
    ```
+
+---
+
+## Scheduled Job Issues
+
+### "My scheduled job *{job_name}* has not been working since..."
+
+**When it appears**: User receives this notification when their scheduled job has failed 1440 consecutive times (~24 hours if the dispatcher runs every minute).
+
+**Common causes**:
+
+1. **Tool permissions issue**: The agent's tools lack required permissions
+2. **External API down**: A tool depends on an unavailable service
+3. **Agent prompt issue**: Agent gets stuck in a tool loop
+
+**How to investigate**:
+
+```bash
+# Check the job's failure status in Firestore
+gcloud firestore documents describe scheduled_jobs/JOB_ID \
+  --project=vertex-ai-middleware-prod
+
+# Look for consecutive_failures and last_error fields
+```
+
+**Solutions**:
+
+1. Fix the underlying permission/tool issue (see error messages above)
+2. The job will automatically recover on the next successful execution
+3. To reset failure count manually, update the Firestore document:
+   ```bash
+   # Via Firestore console or script
+   consecutive_failures: 0
+   last_error: null
+   ```
+
+---
+
+### Scheduled job runs but user doesn't receive message
+
+**Symptoms**: Logs show job executed successfully but no message was sent.
+
+**Check the logs for**:
+
+```bash
+gcloud logging read \
+  'resource.type="cloud_run_revision"
+   AND textPayload:"Job" AND textPayload:"failed"' \
+  --project=vertex-ai-middleware-prod \
+  --limit=20
+```
+
+**Common patterns**:
+
+1. **`Tool 'X' did not respond (possible permission issue)`**: Tool lacks IAM permissions
+2. **`Tool 'X' hit rate limit`**: External API throttled; will retry next scheduled run
+3. **`Empty response (N chunks)`**: Agent returned no text; check agent prompt
+
+**Viewing job failure history**:
+
+```bash
+# In Firestore, each scheduled_job document has:
+# - consecutive_failures: number of failures since last success
+# - last_error: description of the most recent failure
+# - last_execution_at: timestamp of last successful execution
+```
 
 ---
 

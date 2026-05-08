@@ -26,6 +26,7 @@ class VertexAIResponse:
         chunk_count: int = 0,
         breakdown: Optional[dict] = None,
         function_names: Optional[list] = None,
+        function_errors: Optional[list] = None,
     ):
         """
         Initialize response.
@@ -38,11 +39,32 @@ class VertexAIResponse:
                 in stream order. Used by MessageProcessorV2 to surface a
                 "broken tool" message naming the tool the agent got stuck
                 on when it never produced final text.
+            function_errors: List of dicts with error info extracted from
+                function_response parts. Each dict has 'tool_name' and
+                'error_type' (e.g., 'rate_limit', 'error', 'unknown').
         """
         self.text = text
         self.chunk_count = chunk_count
         self.breakdown = breakdown or {}
         self.function_names = function_names or []
+        self.function_errors = function_errors or []
+
+    @property
+    def has_rate_limit_error(self) -> bool:
+        """Check if any function_response indicated a rate limit error."""
+        return any(e.get("error_type") == "rate_limit" for e in self.function_errors)
+
+    @property
+    def has_unanswered_function_calls(self) -> bool:
+        """
+        Check if there were function calls without corresponding responses.
+
+        This indicates the tool failed to execute at all, often due to
+        permission issues or crashes.
+        """
+        call_count = self.breakdown.get("function_call", 0)
+        response_count = self.breakdown.get("function_response", 0)
+        return call_count > 0 and response_count == 0
 
 
 class VertexAIService:
@@ -192,7 +214,7 @@ class VertexAIService:
             chunk_count = len(chunks)
             stream_error = stream_state["stream_error"]
 
-            full_response, breakdown, function_names = self._extract_text_from_chunks(
+            full_response, breakdown, function_names, function_errors = self._extract_text_from_chunks(
                 chunks, message_length=message_length
             )
 
@@ -234,6 +256,7 @@ class VertexAIService:
                 chunk_count=chunk_count,
                 breakdown=breakdown,
                 function_names=function_names,
+                function_errors=function_errors,
             )
 
         except ResourceExhausted as e:
@@ -278,15 +301,20 @@ class VertexAIService:
         produced final text — the dominant empty-response failure mode
         in production.
 
+        Additionally parses function_response parts for error indicators
+        (rate limits, exceptions, etc.) to enable better error messaging.
+
         Args:
             chunks: List of JSON strings from the stream
             message_length: Length of the original message (for diagnostic logging)
 
         Returns:
-            Tuple of (extracted_text, breakdown_dict, function_names_list).
+            Tuple of (extracted_text, breakdown_dict, function_names_list, function_errors_list).
         """
         text_parts = []
         function_names = []
+        function_errors = []
+        function_responses_raw = []  # For logging on failure
         chunk_count = len(chunks)
         breakdown = {
             "text": 0,
@@ -315,6 +343,12 @@ class VertexAIService:
                                 function_names.append(name)
                     elif "function_response" in part:
                         breakdown["function_response"] += 1
+                        fr = part.get("function_response", {})
+                        function_responses_raw.append(fr)
+                        # Parse function_response for error indicators
+                        error_info = self._parse_function_response_for_errors(fr)
+                        if error_info:
+                            function_errors.append(error_info)
                     else:
                         breakdown["other"] += 1
 
@@ -337,20 +371,134 @@ class VertexAIService:
             f"unparseable={breakdown['unparseable']}"
         )
         names_str = ",".join(function_names) if function_names else "(none)"
+        errors_str = json.dumps(function_errors) if function_errors else "(none)"
 
         if not result.strip() and chunk_count > 0:
             first_chunk_preview = chunks[0][:500] if chunks else "(no chunks)"
+            # Log function_response content for debugging tool failures
+            fr_preview = json.dumps(function_responses_raw)[:2000] if function_responses_raw else "(none)"
             logger.warning(
                 f"Empty text extracted from {chunk_count} chunks. "
                 f"Breakdown: {breakdown_str}. "
                 f"Functions called: {names_str}. "
+                f"Function errors detected: {errors_str}. "
                 f"Input message was {message_length} chars. "
                 f"First chunk preview: {first_chunk_preview}"
             )
+            if function_responses_raw:
+                logger.info(
+                    f"Function responses (for debugging): {fr_preview}"
+                )
         else:
             logger.debug(
                 f"Chunk breakdown ({chunk_count} chunks): {breakdown_str}, "
                 f"functions: {names_str}"
             )
 
-        return result, breakdown, function_names
+        return result, breakdown, function_names, function_errors
+
+    def _parse_function_response_for_errors(self, fr: dict) -> Optional[dict]:
+        """
+        Parse a function_response part for error indicators.
+
+        Looks for rate limit errors (429, resource_exhausted, quota) and
+        other error patterns in the response content.
+
+        Args:
+            fr: The function_response dict from a chunk part
+
+        Returns:
+            Dict with 'tool_name' and 'error_type' if an error is detected,
+            None otherwise.
+        """
+        if not isinstance(fr, dict):
+            return None
+
+        tool_name = fr.get("name", "unknown_tool")
+        response = fr.get("response", {})
+
+        # Convert response to string for pattern matching
+        response_str = json.dumps(response).lower() if response else ""
+
+        # Check for rate limit indicators
+        rate_limit_patterns = [
+            "429",
+            "resource_exhausted",
+            "resourceexhausted",
+            "quota",
+            "rate limit",
+            "rate_limit",
+            "ratelimit",
+            "too many requests",
+            "requests per minute",
+            "rpm limit",
+            "qpm limit",
+        ]
+
+        for pattern in rate_limit_patterns:
+            if pattern in response_str:
+                logger.warning(
+                    f"Rate limit error detected in function_response for tool '{tool_name}': "
+                    f"matched pattern '{pattern}'"
+                )
+                return {
+                    "tool_name": tool_name,
+                    "error_type": "rate_limit",
+                    "pattern_matched": pattern,
+                }
+
+        # Check for permission/access denied errors
+        access_denied_patterns = [
+            "403",
+            "forbidden",
+            "permission denied",
+            "permission_denied",
+            "access denied",
+            "access_denied",
+            "unauthorized",
+            "not authorized",
+            "insufficient permissions",
+            "insufficient_permissions",
+            "iam",
+            "requires permission",
+        ]
+
+        for pattern in access_denied_patterns:
+            if pattern in response_str:
+                logger.warning(
+                    f"Access denied error detected in function_response for tool '{tool_name}': "
+                    f"matched pattern '{pattern}'"
+                )
+                return {
+                    "tool_name": tool_name,
+                    "error_type": "access_denied",
+                    "pattern_matched": pattern,
+                }
+
+        # Check for general error indicators
+        error_patterns = [
+            '"error"',
+            '"exception"',
+            '"failed"',
+            '"failure"',
+            "500",
+            "502",
+            "503",
+            "504",
+            "internal server error",
+            "service unavailable",
+        ]
+
+        for pattern in error_patterns:
+            if pattern in response_str:
+                logger.info(
+                    f"Error detected in function_response for tool '{tool_name}': "
+                    f"matched pattern '{pattern}'"
+                )
+                return {
+                    "tool_name": tool_name,
+                    "error_type": "error",
+                    "pattern_matched": pattern,
+                }
+
+        return None

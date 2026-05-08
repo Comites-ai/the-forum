@@ -62,6 +62,24 @@ ERR_BROKEN_TOOL_TEMPLATE = (
     "I got stuck when I tried to {tool_name}. "
     "Could you tell the person that made me about this problem?"
 )
+ERR_TOOL_RATE_LIMITED_TEMPLATE = (
+    "One of my tools ({tool_name}) hit a rate limit. You can try that action again, but if it keeps happening, please advise the person that made me of this issue so they can investigate. "
+)
+ERR_TOOL_ERROR_TEMPLATE = (
+    "One of my tools ({tool_name}) ran into an error. "
+    "Could you try that again? If it keeps happening, "
+    "please tell the person that made me."
+)
+ERR_TOOL_ACCESS_DENIED_TEMPLATE = (
+    "One of my tools ({tool_name}) doesn't have the access it needs. "
+    "Could you let the person who created me know? "
+    "They may need to grant additional permissions."
+)
+ERR_TOOL_NO_RESPONSE_TEMPLATE = (
+    "The first tool I called ({tool_name}) didn't respond at all. "
+    "This often happens when it doesn't have permission to access an API. "
+    "Could you let the person who created me know?"
+)
 
 
 class MessageProcessorV2:
@@ -220,18 +238,56 @@ class MessageProcessorV2:
             response_text = response.text.strip()
             if not response_text:
                 image_count = 1 if image_payload else 0
+                # Include function_errors in the log for debugging
                 logger.warning(
                     f"Empty response from agent for user {user.id} "
                     f"(images: {image_count}, "
                     f"message_length: {len(message_text)}, "
-                    f"functions_called: {response.function_names or '[]'})"
+                    f"functions_called: {response.function_names or '[]'}, "
+                    f"function_errors: {response.function_errors or '[]'})"
                 )
-                # Production data shows the dominant empty-response cause is
-                # "agent looped on tool calls and never produced final text."
-                # When that's the case, name the most recent tool so the user
-                # can flag it to the agent's owner. Otherwise fall back to
-                # the older canned messages.
-                if response.function_names:
+                # Check for function calls that got no response at all.
+                # This is the most severe failure - the tool never executed.
+                if response.has_unanswered_function_calls:
+                    last_tool = response.function_names[-1] if response.function_names else "a tool"
+                    response_text = ERR_TOOL_NO_RESPONSE_TEMPLATE.format(
+                        tool_name=last_tool
+                    )
+                # Check for specific error types in function_responses.
+                # This gives users actionable information about what went wrong.
+                elif response.function_errors:
+                    # Find the most specific error to report
+                    rate_limit_errors = [
+                        e for e in response.function_errors
+                        if e.get("error_type") == "rate_limit"
+                    ]
+                    access_denied_errors = [
+                        e for e in response.function_errors
+                        if e.get("error_type") == "access_denied"
+                    ]
+                    other_errors = [
+                        e for e in response.function_errors
+                        if e.get("error_type") == "error"
+                    ]
+
+                    if rate_limit_errors:
+                        tool_name = rate_limit_errors[-1].get("tool_name", "a tool")
+                        response_text = ERR_TOOL_RATE_LIMITED_TEMPLATE.format(
+                            tool_name=tool_name
+                        )
+                    elif access_denied_errors:
+                        tool_name = access_denied_errors[-1].get("tool_name", "a tool")
+                        response_text = ERR_TOOL_ACCESS_DENIED_TEMPLATE.format(
+                            tool_name=tool_name
+                        )
+                    elif other_errors:
+                        tool_name = other_errors[-1].get("tool_name", "a tool")
+                        response_text = ERR_TOOL_ERROR_TEMPLATE.format(
+                            tool_name=tool_name
+                        )
+                # Fall back to the generic "broken tool" message if we have
+                # function calls but couldn't detect a specific error type.
+                elif response.function_names:
                     last_tool = response.function_names[-1]
                     response_text = ERR_BROKEN_TOOL_TEMPLATE.format(
                         tool_name=last_tool

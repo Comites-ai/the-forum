@@ -1017,37 +1017,69 @@ The middleware does its best to keep users from seeing raw failures.
 Most error handling happens in the middleware so agent code can stay
 simple. A few cases are worth knowing about as an agent developer.
 
-### Empty agent responses & the "broken tool" message
+### Empty agent responses & intelligent error detection
 
 If your agent's response stream finishes without producing any text,
-the middleware will not leave the user hanging. The most common cause
-in production is an agent that calls one or more tools but never wraps
-up with a text reply (a "tool loop" — usually an agent-prompt issue,
-not a middleware issue).
+the middleware analyzes the stream to determine the most likely cause
+and shows the user an appropriate message. The middleware examines:
 
-When that happens, the middleware looks at the names of the tools the
-agent tried to call and replies to the user with:
+1. **Function call vs response counts** — did tools get called but
+   never respond?
+2. **Error patterns in function_response** — rate limits, permission
+   errors, general failures
+3. **Function names** — which tool was the agent working with?
 
-> Oh no, I appear to have a broken tool. I got stuck when I tried to
-> `<tool_name>`. Could you tell the person that made me about this
-> problem?
+#### "The first tool I called ({tool_name}) didn't respond at all..."
 
-`<tool_name>` is the name of the most recent function the agent tried
-to invoke before its turn ended without text. If users start reporting
-this message, that's your signal to look at:
+This appears when `function_call > 0` but `function_response = 0`.
+The tool was invoked but never executed — usually a permissions issue.
 
+**What to check:**
+- Does your Reasoning Engine's service account have the IAM roles the
+  tool needs?
+- Is the tool trying to access a resource (Sheet, API, etc.) that
+  isn't shared with the service account?
+
+#### "One of my tools ({tool_name}) hit a rate limit..."
+
+This appears when a `function_response` contains rate-limit indicators
+(429, quota, resource_exhausted, etc.). The tool executed but was
+throttled by an external API.
+
+**What to check:**
+- Project quotas for the affected API
+- Rate limiting in the external service
+- Consider adding backoff/retry logic in the tool
+
+#### "One of my tools ({tool_name}) doesn't have the access it needs..."
+
+This appears when a `function_response` contains permission-denied
+indicators (403, forbidden, unauthorized, etc.).
+
+**What to check:**
+- IAM bindings for the service account
+- Resource sharing (Google Sheets, Docs, etc.)
+- API enablement in the project
+
+#### "Oh no, I appear to have a broken tool..."
+
+This is the fallback when tools were called and responded, but the
+agent still produced no text. Usually a "tool loop" — the agent keeps
+calling tools without summarizing results.
+
+**What to check:**
 1. **Your agent's prompt** — does it explicitly require a text response
    after tool calls? Many tool-loop cases are fixed by adding an
    instruction like *"After running tools, always summarise the result
    in a short message to the user."*
-2. **The named tool** — is it returning correctly? Is it raising an
-   exception that's confusing the agent? Check the tool's logs.
+2. **The named tool** — is it returning confusing output that makes the
+   agent call more tools instead of responding?
 3. **Token / iteration limits** — if the agent runs out of tokens or
    iteration budget mid-loop, it can finish without writing text.
 
-The middleware logs every empty-response event with a chunk-type
-breakdown and the list of function names called. Search Cloud Run
-logs for `Empty text extracted` to find these:
+### Diagnostic logging
+
+The middleware logs every empty-response event with detailed diagnostics:
 
 ```bash
 gcloud logging read \
@@ -1058,6 +1090,14 @@ gcloud logging read \
   --format='value(timestamp,textPayload)' \
   --limit=50
 ```
+
+Log entries include:
+- **Chunk breakdown**: `text=0 function_call=3 function_response=0`
+- **Functions called**: `get_memory,search_web,update_record`
+- **Function errors detected**: `[{"tool_name":"search_web","error_type":"rate_limit"}]`
+
+The pattern `function_call=N function_response=0` is a strong signal
+of a permissions problem with the first tool called.
 
 The middleware does **not** automatically retry these failures, because
 the tool calls the agent already made may have side effects (creating
@@ -1074,6 +1114,51 @@ message instead of the broken-tool one. If the user attached an image
 when this happens, the middleware adds *"I may not be set up to
 handle images"* — usually a sign your agent's prompt or model doesn't
 have image support enabled.
+
+### Scheduled job failure tracking
+
+When scheduled jobs produce empty responses (same failure patterns as
+interactive messages), the middleware tracks them in Firestore:
+
+| Field | Description |
+|---|---|
+| `consecutive_failures` | Number of failures since last success |
+| `last_error` | Description of most recent failure |
+| `last_execution_at` | Timestamp of last successful execution |
+
+**Failure types recorded in `last_error`:**
+- `Tool 'X' did not respond (possible permission issue)` — tool never executed
+- `Tool 'X' hit rate limit` — tool was throttled
+- `Empty response (N chunks)` — agent returned no text (generic)
+
+**User notification:** If a job fails 1440 consecutive times (~24 hours
+with a per-minute dispatcher), the user receives:
+
+> My scheduled job *{job_name}* has not been working since {last_execution_at}.
+
+This gives users visibility into persistent failures without spamming
+them on every failed attempt.
+
+**Recovery:** The job keeps running on schedule. Once the underlying
+issue is fixed (permissions granted, rate limit cleared, etc.), the
+next successful execution resets `consecutive_failures` to 0 and the
+user receives the normal scheduled message.
+
+**Monitoring scheduled job health:**
+
+```bash
+# Find jobs with failures
+gcloud firestore documents list scheduled_jobs \
+  --project=vertex-ai-middleware-prod \
+  --format="table(name,data.consecutive_failures,data.last_error)"
+
+# Check logs for specific job failures
+gcloud logging read \
+  'resource.type="cloud_run_revision"
+   AND textPayload:"Job" AND textPayload:"failed"' \
+  --project=vertex-ai-middleware-prod \
+  --limit=20
+```
 
 ### File / image handling
 
