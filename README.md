@@ -1,6 +1,20 @@
-# Multi-Platform Vertex AI Agent Middleware
+# The Forum by Comites.ai
 
-FastAPI middleware service that routes messages from **Slack**, **Google Chat**, and **Telegram** to Google Vertex AI Agent Engine and posts responses back. Supports multiple agents with individual platform identities, automatic session management, cross-platform conversation continuity, and scheduled jobs.
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+**The Forum** is open-source middleware that routes messages from **Slack**, **Google Chat**, and **Telegram** to Google Vertex AI Agent Engine and posts responses back. Supports multiple agents with individual platform identities, automatic session management, cross-platform conversation continuity, and scheduled jobs.
+
+## The Comites.ai Metaphor
+
+In ancient Rome, *comites* (singular: *comes*) were trusted advisors to emperors—experts who provided counsel on matters of state, strategy, and daily affairs.
+
+At **Comites.ai**, we're bringing this concept into the AI age:
+- **You are the emperor** — the decision-maker who needs expert counsel
+- **Your AI agents are your comites** — specialized advisors you create to help with different domains
+- **The Forum is where you meet** — just as Roman emperors convened with their advisors in the Forum, this middleware is where you interact with your AI comites
+
+Build your own council of AI advisors. Deploy them to Slack, Google Chat, or Telegram. Let them help you navigate your domain.
 
 ## Features
 
@@ -39,7 +53,7 @@ BackgroundTask:
 
 ### Platform Connectors
 
-The middleware uses a unified `PlatformConnector` interface:
+The Forum uses a unified `PlatformConnector` interface:
 - **SlackConnector**: Slack Events API integration
 - **GoogleChatConnector**: Google Chat API with service account auth
 - **TelegramConnector**: Telegram Bot API with webhook verification
@@ -224,7 +238,7 @@ cp slack-app-manifest.yml slack-app-manifest.template.yml
 9. Go to "Basic Information"
 10. Copy "Signing Secret"
 
-### 5. Register Agent with Middleware
+### 5. Register Agent with The Forum
 
 **IMPORTANT**: The `slack-bot-id` must be the **user_id** returned by Slack's auth.test API (starts with `U`), NOT the bot ID shown in Slack app settings (starts with `B`).
 
@@ -322,7 +336,7 @@ gcloud secrets add-iam-policy-binding slack-signing-secret \
 gcloud builds submit --config cloudbuild.yaml
 
 # Or deploy directly
-gcloud run deploy slack-vertex-middleware \
+gcloud run deploy the-forum \
   --source . \
   --region us-central1 \
   --allow-unauthenticated \
@@ -330,7 +344,7 @@ gcloud run deploy slack-vertex-middleware \
   --set-secrets SLACK_SIGNING_SECRET=slack-signing-secret:latest
 
 # Get Cloud Run URL
-gcloud run services describe slack-vertex-middleware \
+gcloud run services describe the-forum \
   --region us-central1 \
   --format 'value(status.url)'
 ```
@@ -370,7 +384,7 @@ curl -s https://slack.com/api/auth.test \
   -H "Authorization: Bearer $SLACK_BOT_TOKEN" | jq .user_id
 # Output: "U0AFZ86NE00"
 
-# 3. Update middleware (in this repo)
+# 3. Update The Forum (in this repo)
 python scripts/deploy_agent.py \
   --agent-name "Growth Coach" \
   --vertex-ai-agent-id "projects/PROJECT/locations/us-central1/reasoningEngines/NEW_ID" \
@@ -423,7 +437,7 @@ slack_to_agent_integration/
 - **Check Slack Events**: Ensure Request URL is verified (green checkmark)
 - **Check logs**:
   - Local: Terminal output
-  - Production: `gcloud run logs read slack-vertex-middleware --region us-central1`
+  - Production: `gcloud run logs read the-forum --region us-central1`
 
 ### "Agent not found" error
 
@@ -445,7 +459,7 @@ curl -s https://slack.com/api/auth.test \
 **Solution**:
 1. Check logs to see which bot is failing:
    ```bash
-   gcloud run logs read slack-vertex-middleware --region us-central1 --limit 50 | grep "401\|Invalid"
+   gcloud run logs read the-forum --region us-central1 --limit 50 | grep "401\|Invalid"
    ```
 2. Ensure **all** Slack signing secrets are in your `.env` file (comma-separated):
    ```bash
@@ -456,14 +470,14 @@ curl -s https://slack.com/api/auth.test \
    - Copy "Signing Secret" under "App Credentials"
 4. Redeploy after updating `.env`:
    ```bash
-   ./scripts/deploy_middleware.sh
+   ./scripts/deploy_forum.sh
    ```
 
 **Note**: The middleware verifies incoming webhook signatures against all configured signing secrets to support multiple Slack apps.
 
 ### "URL verification failed" (Slack)
 
-- Ensure middleware is running before configuring Slack URL
+- Ensure The Forum is running before configuring Slack URL
 - If adding a new bot, add its signing secret to `SLACK_SIGNING_SECRET` (comma-separated) **before** configuring the Event Subscriptions URL
 - For ngrok: Make sure tunnel is active and URL is correct
 - Check logs for signature verification errors
@@ -497,7 +511,7 @@ pip install aiohttp
 
 ## Adding a New Platform
 
-The middleware's platform abstraction makes it straightforward to add new messaging platforms (WhatsApp, Discord, Microsoft Teams, etc.). Telegram serves as the reference implementation for this process.
+The Forum's platform abstraction makes it straightforward to add new messaging platforms (WhatsApp, Discord, Microsoft Teams, etc.). Telegram serves as the reference implementation for this process.
 
 ### Architecture Overview
 
@@ -554,7 +568,7 @@ Using Telegram as the reference implementation:
 **5. Add Terraform Secret Template** ([docs/terraform-templates/agent-project/main.tf](docs/terraform-templates/agent-project/main.tf))
 - [ ] Add commented section for platform-specific secrets
 - [ ] Include instructions for token storage
-- [ ] Add IAM binding instructions for middleware access
+- [ ] Add IAM binding instructions for The Forum access
 
 **6. Update Documentation**
 - [ ] Update README.md features and architecture
@@ -568,7 +582,7 @@ Using Telegram as the reference implementation:
 
 **8. End-to-End Testing**
 - [ ] Create test bot on the platform
-- [ ] Deploy middleware changes
+- [ ] Deploy The Forum changes
 - [ ] Configure webhook
 - [ ] Send test message
 - [ ] Verify identity resolution, session creation, and Vertex AI routing
@@ -609,7 +623,7 @@ Using Telegram as the reference implementation:
 ## Documentation
 
 ### Setup & Infrastructure
-- **[Terraform README](terraform/README.md)** - Middleware infrastructure deployment
+- **[Terraform README](terraform/README.md)** - The Forum infrastructure deployment
 - **[Terraform Templates](docs/terraform-templates/)** - Templates for agent-specific infrastructure
   - [Agent Project Template](docs/terraform-templates/agent-project/) - Dedicated GCP project for agents requiring separate projects
 - [GCP Setup Guide](docs/GCP_SETUP.md) - GCP project configuration
@@ -623,10 +637,34 @@ Using Telegram as the reference implementation:
 - [Agent Deployment](docs/AGENT_DEPLOYMENT.md) - How to deploy/update agents
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues
 
+## Source Code Access
+
+The Forum is licensed under **AGPL-3.0**. As required by the license, you have the right to access the complete source code of any deployed instance.
+
+- **Repository**: https://github.com/Comites-ai/the-forum
+- **API Endpoint**: Any running instance exposes a `/source` endpoint that links to this repository
+
+If you modify and deploy The Forum, you must make your modified source code available to users of your deployment.
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Why we chose AGPL-3.0
+- Contributor License Agreement (CLA) requirements
+- How to submit pull requests
+
 ## License
 
-[Your License]
+Copyright (C) 2025 Comites.ai
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, version 3.
+
+See [LICENSE](LICENSE) for the full text.
+
+## Trademark
+
+"The Forum", "Comites.ai", and the comites-as-AI-advisors concept are trademarks of Comites.ai. See [TRADEMARK.md](TRADEMARK.md) for usage guidelines. Forks must use a different name.
 
 ## Support
 
-For issues or questions, please open an issue on GitHub.
+For issues or questions, please [open an issue on GitHub](https://github.com/Comites-ai/the-forum/issues).

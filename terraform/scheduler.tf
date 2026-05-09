@@ -14,7 +14,7 @@ resource "google_cloud_scheduler_job" "scheduled_jobs_dispatcher" {
 
   http_target {
     http_method = "POST"
-    uri         = "${google_cloud_run_v2_service.middleware.uri}/api/v1/scheduled-jobs/process"
+    uri         = "${google_cloud_run_v2_service.forum.uri}/api/v1/scheduled-jobs/process"
 
     oidc_token {
       service_account_email = google_service_account.scheduler.email
@@ -23,7 +23,7 @@ resource "google_cloud_scheduler_job" "scheduled_jobs_dispatcher" {
 
   depends_on = [
     google_project_service.cloudscheduler,
-    google_cloud_run_v2_service.middleware,
+    google_cloud_run_v2_service.forum,
     google_service_account.scheduler
   ]
 }

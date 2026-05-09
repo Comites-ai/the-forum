@@ -1,3 +1,6 @@
+# Copyright (C) 2025 Comites.ai
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Scheduler MCP server (Streamable HTTP).
 
 Exposes four tools that wrap the existing ScheduledJobService:

@@ -1,3 +1,6 @@
+# Copyright (C) 2025 Comites.ai
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """User identity model for multi-platform support."""
 from datetime import datetime
 from typing import Optional

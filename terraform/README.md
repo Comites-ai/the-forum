@@ -1,6 +1,6 @@
-# Terraform Infrastructure for Vertex AI Middleware
+# Terraform Infrastructure for The Forum
 
-This directory contains Terraform configuration for deploying the complete GCP infrastructure for the Slack/Google Chat Vertex AI middleware.
+This directory contains Terraform configuration for deploying the complete GCP infrastructure for The Forum by Comites.ai.
 
 ## What Gets Created
 
@@ -8,10 +8,10 @@ This directory contains Terraform configuration for deploying the complete GCP i
 - **Service Accounts**:
   - `scheduler-sa` (Cloud Scheduler invoker)
   - Default Compute SA (used by Cloud Run with necessary permissions)
-- **IAM Permissions**: All necessary roles and permissions for middleware
+- **IAM Permissions**: All necessary roles and permissions for The Forum
 - **Secret Manager**: Slack signing secret placeholder
 - **GCS Bucket**: Temporary storage for Slack file uploads (1-day lifecycle)
-- **Cloud Run**: Middleware service deployment
+- **Cloud Run**: The Forum service deployment
 - **Cloud Scheduler**: Scheduled job dispatcher (runs every minute)
 
 **Note**: Agent-specific infrastructure (like Google Chat bot service accounts) should be created in separate terraform configurations. See [../docs/terraform-templates/](../docs/terraform-templates/) for templates.
@@ -74,7 +74,7 @@ Uncomment the backend configuration in `providers.tf`:
 ```hcl
 backend "gcs" {
   bucket = "YOUR_PROJECT_ID-terraform-state"
-  prefix = "middleware/state"
+  prefix = "forum/state"
 }
 ```
 
@@ -145,7 +145,7 @@ For each agent that uses Google Chat:
 1. See [../docs/terraform-templates/agent-project/](../docs/terraform-templates/agent-project/) for terraform templates
 2. Follow [../docs/FOR_AGENT_DEVELOPERS.md](../docs/FOR_AGENT_DEVELOPERS.md) for complete setup instructions
 
-### 3. Deploy Cloud Run Middleware
+### 3. Deploy The Forum to Cloud Run
 
 ```bash
 cd ..
@@ -246,9 +246,9 @@ terraform/
 ## Next Steps
 
 After Terraform deployment:
-1. Deploy Cloud Run middleware (see Post-Deployment Steps above)
+1. Deploy The Forum to Cloud Run (see Post-Deployment Steps above)
 2. Deploy your Vertex AI agents
-3. Register agents with middleware using `scripts/deploy_agent.py`
+3. Register agents with The Forum using `scripts/deploy_agent.py`
 4. For Google Chat bots: follow agent-specific terraform setup (see ../docs/FOR_AGENT_DEVELOPERS.md)
 5. Configure Slack Event Subscriptions with webhook URLs
 6. Test all integrations

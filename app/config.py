@@ -1,3 +1,6 @@
+# Copyright (C) 2025 Comites.ai
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Application configuration using Pydantic Settings."""
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -7,7 +10,7 @@ class Settings(BaseSettings):
     """Application configuration with type-safe environment variables."""
 
     # Application settings
-    app_name: str = "Slack to Vertex AI Middleware"
+    app_name: str = "The Forum by Comites.ai"
     environment: str = "development"
     log_level: str = "INFO"
 

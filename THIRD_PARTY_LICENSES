@@ -1,0 +1,105 @@
+# Third-Party Licenses
+
+The Forum by Comites.ai uses the following third-party dependencies:
+
+## MIT License
+
+### FastAPI
+- Source: https://github.com/tiangolo/fastapi
+- License: MIT
+
+### Pydantic
+- Source: https://github.com/pydantic/pydantic
+- License: MIT
+
+### Pydantic-Settings
+- Source: https://github.com/pydantic/pydantic-settings
+- License: MIT
+
+### Slack SDK
+- Source: https://github.com/slackapi/python-slack-sdk
+- License: MIT
+
+### croniter
+- Source: https://github.com/kiorky/croniter
+- License: MIT
+
+### pytz
+- Source: https://pythonhosted.org/pytz/
+- License: MIT
+
+### MCP (Model Context Protocol)
+- Source: https://github.com/modelcontextprotocol/python-sdk
+- License: MIT
+
+## Apache License 2.0
+
+### google-cloud-firestore
+- Source: https://github.com/googleapis/python-firestore
+- License: Apache-2.0
+
+### google-cloud-aiplatform
+- Source: https://github.com/googleapis/python-aiplatform
+- License: Apache-2.0
+
+### google-cloud-scheduler
+- Source: https://github.com/googleapis/python-scheduler
+- License: Apache-2.0
+
+### google-cloud-storage
+- Source: https://github.com/googleapis/python-storage
+- License: Apache-2.0
+
+### google-cloud-secret-manager
+- Source: https://github.com/googleapis/python-secret-manager
+- License: Apache-2.0
+
+### google-cloud-trace
+- Source: https://github.com/googleapis/python-trace
+- License: Apache-2.0
+
+### google-cloud-logging
+- Source: https://github.com/googleapis/python-logging
+- License: Apache-2.0
+
+### google-api-python-client
+- Source: https://github.com/googleapis/google-api-python-client
+- License: Apache-2.0
+
+### google-auth
+- Source: https://github.com/googleapis/google-auth-library-python
+- License: Apache-2.0
+
+### google-auth-httplib2
+- Source: https://github.com/googleapis/google-auth-library-python-httplib2
+- License: Apache-2.0
+
+### opentelemetry-sdk
+- Source: https://github.com/open-telemetry/opentelemetry-python
+- License: Apache-2.0
+
+### opentelemetry-exporter-gcp-trace
+- Source: https://github.com/GoogleCloudPlatform/opentelemetry-operations-python
+- License: Apache-2.0
+
+### aiohttp
+- Source: https://github.com/aio-libs/aiohttp
+- License: Apache-2.0
+
+## BSD 3-Clause License
+
+### uvicorn
+- Source: https://github.com/encode/uvicorn
+- License: BSD-3-Clause
+
+### cloudpickle
+- Source: https://github.com/cloudpipe/cloudpickle
+- License: BSD-3-Clause
+
+### httpx
+- Source: https://github.com/encode/httpx
+- License: BSD-3-Clause
+
+### python-dotenv
+- Source: https://github.com/theskumar/python-dotenv
+- License: BSD-3-Clause

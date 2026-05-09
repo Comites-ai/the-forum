@@ -12,7 +12,7 @@ output "region" {
 
 output "cloud_run_url" {
   description = "Cloud Run service URL"
-  value       = google_cloud_run_v2_service.middleware.uri
+  value       = google_cloud_run_v2_service.forum.uri
 }
 
 output "gcs_bucket_name" {
@@ -27,12 +27,12 @@ output "scheduler_service_account_email" {
 
 output "slack_webhook_url" {
   description = "Slack webhook URL (use in Slack app Event Subscriptions)"
-  value       = "${google_cloud_run_v2_service.middleware.uri}/api/v1/slack/events"
+  value       = "${google_cloud_run_v2_service.forum.uri}/api/v1/slack/events"
 }
 
 output "google_chat_webhook_url" {
   description = "Google Chat webhook URL (use in Google Chat bot configuration)"
-  value       = "${google_cloud_run_v2_service.middleware.uri}/api/v1/google-chat/events"
+  value       = "${google_cloud_run_v2_service.forum.uri}/api/v1/google-chat/events"
 }
 
 output "next_steps" {
@@ -48,10 +48,10 @@ output "next_steps" {
        If you have multiple Slack apps, add all signing secrets comma-separated.
 
     2. Update Slack app webhook URL (for each Slack bot):
-       ${google_cloud_run_v2_service.middleware.uri}/api/v1/slack/events
+       ${google_cloud_run_v2_service.forum.uri}/api/v1/slack/events
 
     3. Google Chat webhook URL (if using Google Chat bots):
-       ${google_cloud_run_v2_service.middleware.uri}/api/v1/google-chat/events
+       ${google_cloud_run_v2_service.forum.uri}/api/v1/google-chat/events
 
     4. For agent-specific setup (Google Chat bots, etc.):
        See docs/FOR_AGENT_DEVELOPERS.md for complete instructions

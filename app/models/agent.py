@@ -1,3 +1,6 @@
+# Copyright (C) 2025 Comites.ai
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Agent configuration model."""
 from typing import Optional
 from pydantic import BaseModel, Field, model_validator

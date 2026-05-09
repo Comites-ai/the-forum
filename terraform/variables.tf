@@ -1,4 +1,4 @@
-# Terraform Variables for Vertex AI Middleware Infrastructure
+# Terraform Variables for The Forum Infrastructure
 
 variable "project_id" {
   description = "GCP Project ID (e.g., 'my-workspace-project-123')"
@@ -26,7 +26,7 @@ variable "gcs_bucket_lifecycle_days" {
 variable "cloud_run_service_name" {
   description = "Name of the Cloud Run service"
   type        = string
-  default     = "slack-vertex-middleware"
+  default     = "the-forum"
 }
 
 variable "scheduler_job_name" {

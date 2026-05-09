@@ -103,3 +103,4 @@ terraform/service_accounts.tf
 migration-*.md
 migration-outputs.json
 migration-data/
+MIGRATION_CHECKLIST.md

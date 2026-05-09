@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-Common issues and solutions for the Slack to Vertex AI middleware.
+Common issues and solutions for The Forum.
 
 ## Table of Contents
 
@@ -194,7 +194,7 @@ The pattern `function_call=N function_response=0` means N tools were called but 
    # Watch terminal running uvicorn
 
    # Production:
-   gcloud run logs read slack-vertex-middleware \
+   gcloud run logs read the-forum \
      --region us-central1 \
      --limit 50
    ```
@@ -212,7 +212,7 @@ The pattern `function_call=N function_response=0` means N tools were called but 
 
 **Solutions**:
 
-1. **Ensure middleware is running**:
+1. **Ensure The Forum is running**:
    ```bash
    # Local: Check uvicorn is running
    # Production: Check Cloud Run service is deployed
@@ -239,13 +239,13 @@ The pattern `function_call=N function_response=0` means N tools were called but 
 
 **Root Cause**: Slack retries event delivery if the webhook doesn't respond quickly enough (within ~3 seconds). Each retry is processed as a new event, creating a new Vertex AI session and sending another response.
 
-**Solution**: The middleware handles this by checking for the `X-Slack-Retry-Num` header and immediately acknowledging retries without reprocessing. If you're seeing this issue, ensure your deployed version includes this retry handling in `app/api/v1/slack_events.py`.
+**Solution**: The Forum handles this by checking for the `X-Slack-Retry-Num` header and immediately acknowledging retries without reprocessing. If you're seeing this issue, ensure your deployed version includes this retry handling in `app/api/v1/slack_events.py`.
 
 **How to verify**: Check Cloud Run logs for entries like:
 ```
 Acknowledging Slack retry #1 (reason: http_timeout)
 ```
-If you don't see these log lines, your deployed version may be outdated. Redeploy the middleware.
+If you don't see these log lines, your deployed version may be outdated. Redeploy The Forum.
 
 ---
 
@@ -267,7 +267,7 @@ If you don't see these log lines, your deployed version may be outdated. Redeplo
    # Should be accurate (use NTP)
    ```
 
-3. **Restart middleware** after changing signing secret
+3. **Restart The Forum** after changing signing secret
 
 ---
 
@@ -277,7 +277,7 @@ If you don't see these log lines, your deployed version may be outdated. Redeplo
 
 **Symptoms**: When you send a message to your Google Chat bot, you immediately see a "Bot Name Not Responding" notification, even though the bot processes the message and responds successfully in the background.
 
-**Root Cause**: The Google Chat webhook endpoint is returning an incorrect response for your use case. Google Chat supports two response patterns:
+**Root Cause**: The Google Chat webhook endpoint is returning an incorrect response. Google Chat supports two response patterns:
 
 1. **Synchronous response** (for quick replies < 30 seconds): Return `{"text": "Message"}` directly
 2. **Asynchronous response** (for longer processing): Return `{}` and send message via Chat API
@@ -541,7 +541,7 @@ python scripts/setup_firestore.py --project-id YOUR_PROJECT_ID
 
 3. **Check logs for errors**:
    ```bash
-   gcloud run logs read slack-vertex-middleware \
+   gcloud run logs read the-forum \
      --region us-central1 \
      --format json | grep session
    ```
@@ -554,7 +554,7 @@ python scripts/setup_firestore.py --project-id YOUR_PROJECT_ID
 
 **Symptoms**: User sends an image to the bot and receives this error message.
 
-**Cause**: The middleware couldn't upload the file to GCS. This happens when:
+**Cause**: The Forum couldn't upload the file to GCS. This happens when:
 - GCS bucket doesn't exist
 - GCS bucket name is misconfigured
 - Service account lacks permissions to write to the bucket
@@ -567,7 +567,7 @@ python scripts/setup_firestore.py --project-id YOUR_PROJECT_ID
    gcloud storage buckets describe gs://YOUR_BUCKET_NAME
    ```
 
-2. **Check middleware has correct bucket name**:
+2. **Check The Forum has correct bucket name**:
    ```bash
    grep GCS_BUCKET_NAME .env
    ```
@@ -589,16 +589,16 @@ python scripts/setup_firestore.py --project-id YOUR_PROJECT_ID
      --role="roles/storage.objectAdmin"
    ```
 
-5. **Check middleware logs for specific error**:
+5. **Check The Forum logs for specific error**:
    ```bash
-   gcloud run logs read slack-vertex-middleware \
+   gcloud run logs read the-forum \
      --region us-central1 \
      --limit 50 | grep -i "gcs\|upload\|bucket"
    ```
 
 ### Files upload but agent can't read them
 
-**Symptoms**: Middleware logs show "Uploaded image to GCS" but agent returns errors or ignores the image.
+**Symptoms**: The Forum logs show "Uploaded image to GCS" but agent returns errors or ignores the image.
 
 **Solutions**:
 
@@ -774,7 +774,7 @@ pip install aiohttp
 
 1. **Check environment variables**:
    ```bash
-   gcloud run services describe slack-vertex-middleware \
+   gcloud run services describe the-forum \
      --region us-central1 \
      --format yaml
    ```
@@ -787,7 +787,7 @@ pip install aiohttp
 
 3. **Review startup logs**:
    ```bash
-   gcloud run logs read slack-vertex-middleware \
+   gcloud run logs read the-forum \
      --region us-central1 \
      --limit 100
    ```
@@ -822,7 +822,7 @@ If you've tried the above and still have issues:
 
 1. **Check full logs**:
    ```bash
-   gcloud run logs read slack-vertex-middleware \
+   gcloud run logs read the-forum \
      --region us-central1 \
      --format json \
      --limit 100 > logs.json

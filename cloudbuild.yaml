@@ -5,14 +5,14 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/slack-vertex-middleware:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/the-forum:$COMMIT_SHA'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/slack-vertex-middleware:latest'
+      - 'gcr.io/$PROJECT_ID/the-forum:latest'
       - '.'
 
   # Push the image (needed before deploy)
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '--all-tags', 'gcr.io/$PROJECT_ID/slack-vertex-middleware']
+    args: ['push', '--all-tags', 'gcr.io/$PROJECT_ID/the-forum']
 
   # Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -20,9 +20,9 @@ steps:
     args:
       - 'run'
       - 'deploy'
-      - 'slack-vertex-middleware'
+      - 'the-forum'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/slack-vertex-middleware:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/the-forum:$COMMIT_SHA'
       - '--region'
       - 'us-central1'
       - '--platform'

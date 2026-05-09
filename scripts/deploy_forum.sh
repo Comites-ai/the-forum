@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# Deploy the Slack-to-Vertex AI middleware to Cloud Run via Cloud Build.
+# Deploy The Forum to Cloud Run via Cloud Build.
 #
 # Usage:
-#   ./scripts/deploy_middleware.sh                  # deploy from current commit
-#   ./scripts/deploy_middleware.sh --project my-id  # override GCP project
+#   ./scripts/deploy_forum.sh                  # deploy from current commit
+#   ./scripts/deploy_forum.sh --project my-id  # override GCP project
 #
 set -euo pipefail
 
@@ -73,7 +73,7 @@ COMMIT_SHA=$(git rev-parse HEAD)
 COMMIT_SHORT=$(git rev-parse --short HEAD)
 COMMIT_MSG=$(git log -1 --pretty=%s)
 
-echo "=== Middleware Deployment ==="
+echo "=== The Forum Deployment ==="
 echo "  Project:    $PROJECT_ID"
 echo "  Region:     $REGION"
 echo "  GCS Bucket: ${GCS_BUCKET:-<not configured>}"
@@ -91,7 +91,7 @@ gcloud builds submit "$REPO_ROOT" \
 echo ""
 
 # --- Route traffic to latest revision ---
-SERVICE_NAME="slack-vertex-middleware"
+SERVICE_NAME="the-forum"
 echo "Routing 100% traffic to latest revision..."
 gcloud run services update-traffic "$SERVICE_NAME" \
     --project="$PROJECT_ID" \
