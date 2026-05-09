@@ -1,6 +1,6 @@
 # Cloud Run Service Configuration
 
-resource "google_cloud_run_v2_service" "middleware" {
+resource "google_cloud_run_v2_service" "forum" {
   name     = var.cloud_run_service_name
   location = var.region
   ingress  = "INGRESS_TRAFFIC_ALL"

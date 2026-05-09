@@ -18,7 +18,7 @@ resource "google_service_account" "scheduler" {
 
 # Grant Cloud Run invoker permission to Scheduler SA
 resource "google_cloud_run_service_iam_member" "scheduler_invoker" {
-  service  = google_cloud_run_v2_service.middleware.name
+  service  = google_cloud_run_v2_service.forum.name
   location = var.region
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.scheduler.email}"
