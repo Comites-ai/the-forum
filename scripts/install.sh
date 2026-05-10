@@ -493,6 +493,16 @@ EOF
         echo
     fi
 
+    cat <<EOF
+${BOLD}[ ] LOCAL PYTHON ENV (optional, for running agent-registration scripts)${NC}
+    To run scripts/deploy_agent.py, scripts/provision_scheduler_api_key.py,
+    or anything else under scripts/ that's Python, set up a venv:
+       python3 -m venv venv
+       source venv/bin/activate
+       pip install -r requirements.txt
+
+EOF
+
     echo "${BOLD}============================================================${NC}"
 }
 
