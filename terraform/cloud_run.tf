@@ -73,16 +73,12 @@ resource "google_cloud_run_v2_service" "forum" {
         }
       }
 
-      # Startup probe
-      startup_probe {
-        http_get {
-          path = "/health"
-        }
-        initial_delay_seconds = 0
-        timeout_seconds       = 1
-        period_seconds        = 3
-        failure_threshold     = 3
-      }
+      # No explicit startup_probe: Cloud Run's default TCP probe gives a
+      # ~4-minute boot budget, which fits the cold-start cost of importing
+      # vertexai + google-cloud-aiplatform + firestore + slack-sdk + mcp on
+      # 1 vCPU. The previous explicit HTTP probe to /health (period=3,
+      # failure_threshold=3 → ~9s budget) consistently killed fresh
+      # revisions before uvicorn finished importing app.main.
     }
 
     # Scaling configuration
@@ -109,7 +105,6 @@ resource "google_cloud_run_v2_service" "forum" {
   lifecycle {
     ignore_changes = [
       template[0].containers[0].env,
-      template[0].containers[0].startup_probe,
       template[0].scaling,
       template[0].containers[0].resources,
       template[0].containers[0].image,
