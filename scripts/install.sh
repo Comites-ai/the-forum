@@ -52,21 +52,21 @@ ${BOLD}=== The Forum — Guided Install ===${NC}
 This script walks through every step needed to install The Forum into a
 GCP project. It will:
 
-  1.  Check for required CLIs (gcloud, terraform). If missing, link to docs.
-  2.  Authenticate gcloud (user + Application Default Credentials).
+  2.  Verify gcloud CLI, authenticate, and select your GCP project.
   3.  Bootstrap-enable the APIs terraform itself needs.
-  4.  Ask whether this is a migration from an existing install.
-  5.  Ask which messaging platforms you'll use.
-  6.  Generate terraform.tfvars and .env from your answers.
-  7.  Create a GCS bucket for terraform remote state.
-  8.  Collect the Slack signing secret value (from migration backup or via prompt),
+  4.  Verify terraform CLI is installed.
+  5.  Ask whether this is a migration from an existing install.
+  6.  Ask which messaging platforms you'll use.
+  7.  Generate terraform.tfvars and .env from your answers.
+  8.  Create a GCS bucket for terraform remote state.
+  9.  Collect the Slack signing secret value (from migration backup or via prompt),
       then run terraform plan + apply. The secret value is passed to terraform
       via TF_VAR, so the Cloud Run service comes up with the binding already
       satisfied.
-  9.  Restore Firestore data if migrating.
-  10. Run scripts/deploy_forum.sh (Cloud Build → real image → Cloud Run).
-  11. Verify the service responds on /health.
-  12. Print platform-specific webhook URLs for manual setup.
+  10. Restore Firestore data if migrating.
+  11. Run scripts/deploy_forum.sh (Cloud Build → real image → Cloud Run).
+  12. Verify the service responds on /health.
+  13. Print platform-specific webhook URLs for manual setup.
 
 Pre-requisites you must handle yourself:
   • A GCP project exists and has a billing account linked.
@@ -131,9 +131,9 @@ phase_2_gcloud() {
     hr
 }
 
-# --- Phase 2.5: Bootstrap APIs needed by terraform itself ---
-phase_2_5_bootstrap_apis() {
-    say "Phase 2.5: Bootstrap APIs"
+# --- Phase 3: Bootstrap APIs needed by terraform itself ---
+phase_3_bootstrap_apis() {
+    say "Phase 3: Bootstrap APIs"
     # Terraform needs serviceusage to enable the rest of the APIs, and
     # cloudresourcemanager to query/modify project IAM. Both can ONLY be
     # enabled outside terraform — chicken-and-egg otherwise.
@@ -145,9 +145,9 @@ phase_2_5_bootstrap_apis() {
     hr
 }
 
-# --- Phase 3: terraform check ---
-phase_3_terraform() {
-    say "Phase 3: terraform CLI"
+# --- Phase 4: terraform check ---
+phase_4_terraform() {
+    say "Phase 4: terraform CLI"
     if ! command -v terraform >/dev/null 2>&1; then
         err "terraform CLI not found."
         echo "Install: https://developer.hashicorp.com/terraform/install"
@@ -157,9 +157,9 @@ phase_3_terraform() {
     hr
 }
 
-# --- Phase 4: Migration? ---
-phase_4_migration() {
-    say "Phase 4: Migration"
+# --- Phase 5: Migration? ---
+phase_5_migration() {
+    say "Phase 5: Migration"
     IS_MIGRATION=false
     MIGRATION_PATH=""
     if prompt_yn "Is this a migration from an existing Forum install?"; then
@@ -184,9 +184,9 @@ phase_4_migration() {
     hr
 }
 
-# --- Phase 5: Platforms ---
-phase_5_platforms() {
-    say "Phase 5: Platforms"
+# --- Phase 6: Platforms ---
+phase_6_platforms() {
+    say "Phase 6: Platforms"
     echo "Which messaging platforms will you use? Space-separated."
     echo "Options: ${BOLD}slack${NC} ${BOLD}gchat${NC} (Google Chat) ${BOLD}telegram${NC}"
     read -rp "Platforms: " platforms_input
@@ -208,9 +208,9 @@ phase_5_platforms() {
     hr
 }
 
-# --- Phase 5.5: Generate terraform.tfvars and .env ---
-phase_5_5_config_files() {
-    say "Phase 5.5: Generate terraform.tfvars and .env"
+# --- Phase 7: Generate terraform.tfvars and .env ---
+phase_7_config_files() {
+    say "Phase 7: Generate terraform.tfvars and .env"
 
     read -rp "GCP region [us-central1]: " REGION
     REGION="${REGION:-us-central1}"
@@ -289,9 +289,9 @@ EOF
     ok "Wrote $path"
 }
 
-# --- Phase 5.6: Bootstrap GCS terraform state backend ---
-phase_5_6_state_backend() {
-    say "Phase 5.6: Set up GCS state backend"
+# --- Phase 8: Bootstrap GCS terraform state backend ---
+phase_8_state_backend() {
+    say "Phase 8: Set up GCS state backend"
     local state_bucket="${PROJECT_ID}-terraform-state"
 
     if gcloud storage buckets describe "gs://$state_bucket" --project="$PROJECT_ID" >/dev/null 2>&1; then
@@ -316,7 +316,7 @@ phase_5_6_state_backend() {
 # Terraform Provider Configuration
 
 terraform {
-  required_version = ">= 1.0"
+  required_version = ">= 1.2"
 
   required_providers {
     google = {
@@ -389,12 +389,12 @@ EOF
     ok "  Slack signing secret value collected (will be passed to terraform via TF_VAR)."
 }
 
-# --- Phase 6: terraform apply ---
-phase_6_apply() {
-    say "Phase 6: terraform plan + apply"
+# --- Phase 9: terraform apply ---
+phase_9_apply() {
+    say "Phase 9: terraform plan + apply"
 
     if [[ "$USE_SLACK" == "true" ]]; then
-        say "Phase 6 needs the Slack signing secret value before terraform plan/apply."
+        say "Phase 9 needs the Slack signing secret value before terraform plan/apply."
         collect_slack_secret_value
         echo
     fi
@@ -412,9 +412,9 @@ phase_6_apply() {
     hr
 }
 
-# --- Phase 6.5: Firestore data restore (migration only) ---
-phase_6_5_firestore() {
-    say "Phase 6.5: Firestore data restore"
+# --- Phase 10: Firestore data restore (migration only) ---
+phase_10_firestore() {
+    say "Phase 10: Firestore data restore"
     if [[ "$IS_MIGRATION" != "true" ]]; then
         ok "Not a migration — skipping Firestore restore."
         hr
@@ -442,17 +442,17 @@ phase_6_5_firestore() {
     hr
 }
 
-# --- Phase 7: Build and deploy real image ---
-phase_7_deploy() {
-    say "Phase 7: Build and deploy The Forum image"
+# --- Phase 11: Build and deploy real image ---
+phase_11_deploy() {
+    say "Phase 11: Build and deploy The Forum image"
     "$REPO_ROOT/scripts/deploy_forum.sh" --project "$PROJECT_ID" --region "$REGION"
     ok "Deploy complete."
     hr
 }
 
-# --- Phase 7.5: Health check ---
-phase_7_5_verify() {
-    say "Phase 7.5: Verify service health"
+# --- Phase 12: Health check ---
+phase_12_verify() {
+    say "Phase 12: Verify service health"
     local url
     url=$(cd "$REPO_ROOT/terraform" && terraform output -raw cloud_run_url 2>/dev/null || true)
     if [[ -z "$url" ]]; then
@@ -470,9 +470,9 @@ phase_7_5_verify() {
     hr
 }
 
-# --- Phase 8: Manual platform setup instructions ---
-phase_8_platforms() {
-    say "Phase 8: Manual platform setup"
+# --- Phase 13: Manual platform setup instructions ---
+phase_13_platforms() {
+    say "Phase 13: Manual platform setup"
     local cr_url
     cr_url=$(cd "$REPO_ROOT/terraform" && terraform output -raw cloud_run_url 2>/dev/null || echo "<cloud-run-url>")
 
@@ -535,17 +535,17 @@ EOF
 main() {
     phase_1_announce
     phase_2_gcloud
-    phase_2_5_bootstrap_apis
-    phase_3_terraform
-    phase_4_migration
-    phase_5_platforms
-    phase_5_5_config_files
-    phase_5_6_state_backend
-    phase_6_apply
-    phase_6_5_firestore
-    phase_7_deploy
-    phase_7_5_verify
-    phase_8_platforms
+    phase_3_bootstrap_apis
+    phase_4_terraform
+    phase_5_migration
+    phase_6_platforms
+    phase_7_config_files
+    phase_8_state_backend
+    phase_9_apply
+    phase_10_firestore
+    phase_11_deploy
+    phase_12_verify
+    phase_13_platforms
 
     echo
     ok "${BOLD}Install complete.${NC}"
