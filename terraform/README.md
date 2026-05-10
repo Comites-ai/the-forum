@@ -218,11 +218,28 @@ terraform refresh
 
 ## Destroying Infrastructure
 
-**WARNING**: This will delete all resources. Ensure you have backups!
+**Recommended**: use the guided uninstaller, which backs up secrets and Firestore data to `./migration-data/` before destroying:
 
 ```bash
+./scripts/uninstall.sh
+```
+
+It empties the staging bucket (terraform can't auto-empty it), disables Firestore delete protection, runs `terraform destroy`, and asks before deleting container images and the state bucket.
+
+**Manual** (advanced):
+
+```bash
+# 1. Empty the staging bucket (terraform's force_destroy=false)
+gcloud storage rm --recursive gs://YOUR_PROJECT_ID-staging/** --quiet
+
+# 2. Disable Firestore delete protection
+gcloud firestore databases update --database='(default)' --project=YOUR_PROJECT_ID --no-delete-protection
+
+# 3. Destroy
 terraform destroy
 ```
+
+Either way, ensure you have backups of any data you care about (Firestore collections, secret values).
 
 ## Troubleshooting
 

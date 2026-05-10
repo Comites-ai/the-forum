@@ -126,6 +126,8 @@ Pre-requisites you must handle yourself:
 
 Re-running `scripts/install.sh` is safe — every phase detects existing state (existing tfvars, state bucket, backend block, Slack secret) and prompts before overwriting.
 
+To tear down everything later, the matching script is [`scripts/uninstall.sh`](scripts/uninstall.sh) — it backs up secrets and Firestore data to `./migration-data/` before running `terraform destroy`. See [terraform/README.md](terraform/README.md) for details.
+
 **Manual** (advanced): if you need fine-grained control over each step, see [terraform/README.md](terraform/README.md) for tfvars setup and the full sequence (bootstrap APIs → `terraform apply` → secret population → `scripts/deploy_forum.sh`).
 
 ### 3. Export Existing Agent Configuration (Optional)

@@ -57,7 +57,7 @@ If your company would prefer to have a formal Corporate CLA in place, please con
 - Keep PRs focused on a single change
 - Write clear commit messages
 - Update documentation if needed
-- Ensure that `scripts/install.sh` and `scripts/deploy_forum.sh` still operate successfully against a clean GCP project.
+- Ensure that `scripts/install.sh`, `scripts/deploy_forum.sh`, and `scripts/uninstall.sh` still operate successfully against a clean GCP project.
 
 ## Development Setup
 
