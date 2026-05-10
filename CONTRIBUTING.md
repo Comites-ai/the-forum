@@ -57,8 +57,7 @@ If your company would prefer to have a formal Corporate CLA in place, please con
 - Keep PRs focused on a single change
 - Write clear commit messages
 - Update documentation if needed
-- Add tests for new functionality
-- Ensure all tests pass before submitting
+- Ensure that `scripts/install.sh` and `scripts/deploy_forum.sh` still operate successfully against a clean GCP project.
 
 ## Development Setup
 

@@ -2,17 +2,21 @@
 
 This directory contains Terraform configuration for deploying the complete GCP infrastructure for The Forum by Comites.ai.
 
+For most users, [`../scripts/install.sh`](../scripts/install.sh) is the easiest way to apply this terraform — it handles tfvars/.env generation, GCS state backend setup, terraform apply, Slack secret population, image deploy, and platform webhook setup as a single guided flow. The sections below cover the manual path and the variables you can tune.
+
 ## What Gets Created
 
-- **APIs**: All required GCP APIs (Firestore, Vertex AI, Cloud Run, Secret Manager, etc.)
+- **APIs**: All required GCP APIs (Firestore, Vertex AI, Cloud Run, Secret Manager, Cloud Scheduler, Cloud Build, Cloud Storage, Cloud Trace, Logging, Chat).
+- **Firestore**: The `(default)` database in your chosen region.
 - **Service Accounts**:
   - `scheduler-sa` (Cloud Scheduler invoker)
-  - Default Compute SA (used by Cloud Run with necessary permissions)
-- **IAM Permissions**: All necessary roles and permissions for The Forum
-- **Secret Manager**: Slack signing secret placeholder
-- **GCS Bucket**: Temporary storage for Slack file uploads (1-day lifecycle)
-- **Cloud Run**: The Forum service deployment
-- **Cloud Scheduler**: Scheduled job dispatcher (runs every minute)
+  - IAM bindings on the default compute SA (Firestore, Vertex AI, Cloud Run, Logging, Cloud Storage, Service Account User, Artifact Registry writer)
+- **Secret Manager**: `slack-signing-secret` container — only when `var.use_slack = true` (default). The value itself must be added manually after apply (see Post-Deployment Steps).
+- **GCS Buckets**:
+  - `${PROJECT_ID}-slack-files` — temporary storage for uploaded Slack files (1-day lifecycle).
+  - `${PROJECT_ID}-staging` — staging bucket for ADK Agent Engine deploys (7-day lifecycle, force_destroy=false).
+- **Cloud Run**: The Forum service. Initial revision uses a public hello-world placeholder image (`us-docker.pkg.dev/cloudrun/container/hello`); `scripts/deploy_forum.sh` swaps in the real image via Cloud Build.
+- **Cloud Scheduler**: `scheduled-jobs-dispatcher` — invokes Cloud Run every minute.
 
 **Note**: Agent-specific infrastructure (like Google Chat bot service accounts) should be created in separate terraform configurations. See [../docs/terraform-templates/](../docs/terraform-templates/) for templates.
 
@@ -37,8 +41,25 @@ Edit `terraform.tfvars`:
 ```hcl
 project_id  = "your-workspace-project-id"
 region      = "us-central1"
-environment = "prod"
+environment = "production"
+
+# Set to false to skip Slack-related infrastructure (secret container,
+# IAM binding, Cloud Run env binding). Default is true.
+use_slack   = true
 ```
+
+### Available variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `project_id` | (required) | GCP project ID. |
+| `region` | `us-central1` | Region for Cloud Run, GCS buckets, Firestore, scheduler. |
+| `environment` | `prod` | Free-form label propagated to the Cloud Run `ENVIRONMENT` env var. |
+| `gcs_bucket_lifecycle_days` | `1` | TTL for the slack-files bucket. |
+| `cloud_run_service_name` | `the-forum` | Cloud Run service name. |
+| `scheduler_job_name` | `scheduled-jobs-dispatcher` | Cloud Scheduler job name. |
+| `scheduler_cron_schedule` | `* * * * *` | Cron schedule for the scheduler job. |
+| `use_slack` | `true` | Whether to create the Slack signing secret container, its IAM binding, and the Cloud Run env binding. Set to `false` for non-Slack installs — `scripts/deploy_forum.sh` will auto-detect the absent secret and skip the Cloud Run binding. |
 
 ### 2. Authenticate with GCP
 
@@ -47,34 +68,35 @@ gcloud auth application-default login
 gcloud config set project YOUR_PROJECT_ID
 ```
 
-### 3. Create Firestore Database
+### 3. Bootstrap APIs
 
-Terraform cannot create Firestore databases, so create it manually:
+Terraform needs the Service Usage and Cloud Resource Manager APIs enabled before it can enable the rest. Run once per project:
 
 ```bash
-gcloud firestore databases create \
-  --location=us-central1 \
-  --type=firestore-native \
+gcloud services enable \
+  serviceusage.googleapis.com \
+  cloudresourcemanager.googleapis.com \
   --project=YOUR_PROJECT_ID
 ```
 
 ### 4. (Optional) Setup Terraform State Backend
 
-For team collaboration, store Terraform state in GCS:
+For team collaboration, store Terraform state in GCS. The `install.sh` script does this automatically; for manual setup:
 
 ```bash
-# Create bucket for Terraform state
-gsutil mb gs://YOUR_PROJECT_ID-terraform-state
-
-# Enable versioning
-gsutil versioning set on gs://YOUR_PROJECT_ID-terraform-state
+gcloud storage buckets create gs://YOUR_PROJECT_ID-terraform-state \
+  --project=YOUR_PROJECT_ID \
+  --location=us-central1 \
+  --uniform-bucket-level-access \
+  --public-access-prevention
+gcloud storage buckets update gs://YOUR_PROJECT_ID-terraform-state --versioning
 ```
 
 Uncomment the backend configuration in `providers.tf`:
 ```hcl
 backend "gcs" {
   bucket = "YOUR_PROJECT_ID-terraform-state"
-  prefix = "forum/state"
+  prefix = "the-forum/state"
 }
 ```
 
@@ -121,23 +143,27 @@ The outputs include:
 
 ## Post-Deployment Steps
 
-After `terraform apply` completes, you must:
+After `terraform apply` completes:
 
-### 1. Add Slack Signing Secret(s)
+### 1. Add Slack Signing Secret(s) — only if `use_slack = true`
+
+Terraform creates the secret *container* but not its value. Populate it before deploying The Forum:
 
 ```bash
 PROJECT_ID=$(terraform output -raw project_id)
 
-# Add your Slack app signing secret(s) - comma-separated if multiple
+# Single Slack app:
 echo -n "YOUR_SLACK_SECRET" | gcloud secrets versions add slack-signing-secret \
   --data-file=- \
   --project=$PROJECT_ID
 
-# If you have multiple Slack apps:
+# Multiple Slack apps (one per bot, comma-separated):
 # echo -n "secret1,secret2,secret3" | gcloud secrets versions add slack-signing-secret \
 #   --data-file=- \
 #   --project=$PROJECT_ID
 ```
+
+If you set `use_slack = false`, terraform won't create the secret and `scripts/deploy_forum.sh` will skip the Cloud Run binding automatically.
 
 ### 2. Configure Agent-Specific Infrastructure
 
@@ -149,8 +175,10 @@ For each agent that uses Google Chat:
 
 ```bash
 cd ..
-gcloud builds submit --config cloudbuild.yaml --project $PROJECT_ID
+./scripts/deploy_forum.sh
 ```
+
+This builds the image via Cloud Build and rolls it out, replacing the hello-world placeholder Cloud Run revision created by terraform.
 
 ## Updating Infrastructure
 
@@ -209,19 +237,13 @@ Ensure you have the following roles:
 - `roles/iam.securityAdmin` (for service account creation)
 - `roles/resourcemanager.projectIamAdmin` (for IAM bindings)
 
-### Firestore Error
+### Cloud Run service starts but shows "Hello, world"
 
-Terraform cannot create Firestore databases. Create it manually first:
-```bash
-gcloud firestore databases create --location=us-central1 --type=firestore-native --project=YOUR_PROJECT_ID
-```
+That's the public placeholder image (`us-docker.pkg.dev/cloudrun/container/hello`) that terraform creates the Cloud Run service with so the first apply succeeds before any real image has been pushed. Deploy the actual application:
 
-### Cloud Run Image Not Found
-
-The initial Cloud Run deployment uses a placeholder image. Deploy the actual application using Cloud Build:
 ```bash
 cd ..
-gcloud builds submit --config cloudbuild.yaml --project YOUR_PROJECT_ID
+./scripts/deploy_forum.sh
 ```
 
 ## File Structure

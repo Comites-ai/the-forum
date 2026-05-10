@@ -10,9 +10,11 @@ resource "google_cloud_run_v2_service" "forum" {
     service_account = local.default_compute_sa
 
     containers {
-      # Image will be updated by Cloud Build
-      # Initial placeholder image
-      image = "gcr.io/${var.project_id}/${var.cloud_run_service_name}:latest"
+      # Public hello-world placeholder so the first terraform apply succeeds
+      # before any real image has been pushed. Cloud Build (deploy_forum.sh)
+      # then deploys the real image; subsequent applies ignore the image
+      # field via the lifecycle.ignore_changes block below.
+      image = "us-docker.pkg.dev/cloudrun/container/hello"
 
       # Environment variables
       env {
@@ -35,13 +37,19 @@ resource "google_cloud_run_v2_service" "forum" {
         value = var.environment
       }
 
-      # Reference secrets
-      env {
-        name = "SLACK_SIGNING_SECRET"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.slack_signing_secret.secret_id
-            version = "latest"
+      # Reference secrets — Slack binding only when var.use_slack is true.
+      # Cloudbuild's --set-secrets in cloudbuild.yaml takes over after the
+      # initial create (see lifecycle.ignore_changes below), so this is the
+      # bootstrap value only.
+      dynamic "env" {
+        for_each = var.use_slack ? [1] : []
+        content {
+          name = "SLACK_SIGNING_SECRET"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.slack_signing_secret[0].secret_id
+              version = "latest"
+            }
           }
         }
       }

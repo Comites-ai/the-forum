@@ -81,12 +81,24 @@ echo "  Commit:     $COMMIT_SHORT ($COMMIT_MSG)"
 echo "  Config:     $CONFIG"
 echo ""
 
+# --- Detect whether Slack is in use ---
+# cloudbuild.yaml only adds --set-secrets for Slack when _EXTRA_FLAGS is set.
+# We auto-detect by checking whether terraform created the slack-signing-secret.
+EXTRA_FLAGS=""
+if gcloud secrets describe slack-signing-secret --project="$PROJECT_ID" &>/dev/null; then
+    EXTRA_FLAGS="--set-secrets=SLACK_SIGNING_SECRET=slack-signing-secret:latest"
+    echo "  Slack:    detected (slack-signing-secret present)"
+else
+    echo "  Slack:    not in use (slack-signing-secret absent)"
+fi
+echo ""
+
 # --- Submit build ---
 echo "Submitting Cloud Build..."
 gcloud builds submit "$REPO_ROOT" \
     --config="$REPO_ROOT/$CONFIG" \
     --project="$PROJECT_ID" \
-    --substitutions="COMMIT_SHA=$COMMIT_SHA,_GCP_LOCATION=$REGION,_GCS_BUCKET_NAME=$GCS_BUCKET"
+    --substitutions="COMMIT_SHA=$COMMIT_SHA,_GCP_LOCATION=$REGION,_GCS_BUCKET_NAME=$GCS_BUCKET,_EXTRA_FLAGS=$EXTRA_FLAGS"
 
 echo ""
 

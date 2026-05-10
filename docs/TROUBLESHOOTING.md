@@ -478,19 +478,12 @@ gcloud logging read \
 
 **Symptoms**: Running setup_firestore.py fails with database errors
 
-**Root Cause**: Firestore database must be created BEFORE running the setup script.
+**Root Cause**: Firestore database doesn't exist in the project yet.
 
-**Solution**:
+**Solution**: Run terraform — Firestore is now part of [`terraform/firestore.tf`](../terraform/firestore.tf) and `terraform apply` (or `scripts/install.sh`) will create the `(default)` database for you. If you've already applied terraform and still hit this, authenticate with ADC:
+
 ```bash
-# 1. First authenticate
 gcloud auth application-default login
-
-# 2. Create the database (must be done once per project)
-gcloud firestore databases create \
-  --location=us-central1 \
-  --type=firestore-native
-
-# 3. Then run the setup script
 python scripts/setup_firestore.py --project-id YOUR_PROJECT_ID
 ```
 

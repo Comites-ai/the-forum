@@ -1,7 +1,8 @@
 # Secret Manager Configuration
 
-# Slack Signing Secret
+# Slack Signing Secret (created only when var.use_slack is true)
 resource "google_secret_manager_secret" "slack_signing_secret" {
+  count     = var.use_slack ? 1 : 0
   secret_id = "slack-signing-secret"
 
   replication {

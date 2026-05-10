@@ -40,3 +40,9 @@ variable "scheduler_cron_schedule" {
   type        = string
   default     = "* * * * *"
 }
+
+variable "use_slack" {
+  description = "Whether Slack is in use. When false, terraform does not create the slack-signing-secret container or its IAM binding, and Cloud Run does not get the SLACK_SIGNING_SECRET env binding."
+  type        = bool
+  default     = true
+}

@@ -41,9 +41,10 @@ resource "google_project_iam_member" "compute_firestore_user" {
   member  = "serviceAccount:${local.default_compute_sa}"
 }
 
-# Grant Secret Manager access to default compute SA
+# Grant Secret Manager access to default compute SA (only when Slack is in use)
 resource "google_secret_manager_secret_iam_member" "compute_slack_signing_secret" {
-  secret_id = google_secret_manager_secret.slack_signing_secret.id
+  count     = var.use_slack ? 1 : 0
+  secret_id = google_secret_manager_secret.slack_signing_secret[0].id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${local.default_compute_sa}"
 }

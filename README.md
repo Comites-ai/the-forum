@@ -109,72 +109,24 @@ cp .env.example .env
 nano .env
 ```
 
-### 2. Infrastructure Deployment with Terraform
+### 2. Infrastructure Deployment
 
-**Recommended**: Use Terraform for reproducible infrastructure:
-
-```bash
-# Navigate to terraform directory
-cd terraform
-
-# Copy and configure variables
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your project ID
-
-# Authenticate
-gcloud auth application-default login
-
-# Create Firestore database (Terraform can't do this)
-export GCP_PROJECT_ID=your-workspace-project-id
-gcloud firestore databases create \
-  --location=us-central1 \
-  --type=firestore-native \
-  --project=$GCP_PROJECT_ID
-
-# Deploy infrastructure
-terraform init
-terraform plan
-terraform apply
-
-# Save outputs
-terraform output -json > ../outputs.json
-```
-
-This creates:
-- All required GCP APIs
-- Service accounts with permissions
-- Secret Manager secrets
-- GCS bucket with lifecycle
-- Cloud Run service
-- Cloud Scheduler job
-
-See [terraform/README.md](terraform/README.md) for details.
-
-**Alternative**: Manual setup (legacy, not recommended):
+**Recommended**: run the guided installer:
 
 ```bash
-# Set your project ID
-export GCP_PROJECT_ID=your-project-id
-gcloud config set project $GCP_PROJECT_ID
-
-# Enable required APIs
-gcloud services enable \
-  firestore.googleapis.com \
-  aiplatform.googleapis.com \
-  run.googleapis.com \
-  cloudbuild.googleapis.com \
-  secretmanager.googleapis.com \
-  chat.googleapis.com \
-  cloudscheduler.googleapis.com
-
-# Create Firestore database
-gcloud firestore databases create \
-  --location=us-central1 \
-  --type=firestore-native
-
-# Initialize Firestore collections
-python scripts/setup_firestore.py --project-id $GCP_PROJECT_ID
+./scripts/install.sh
 ```
+
+This walks through every step needed to stand up The Forum: gcloud auth, project selection, bootstrap APIs, `terraform.tfvars` and `.env` generation, GCS state backend setup, `terraform apply`, Slack signing secret population, optional Firestore restore (for migrations), Cloud Build image deploy via `scripts/deploy_forum.sh`, a `/health` verification, and per-platform webhook URLs to configure in Slack/Google Chat/Telegram.
+
+Pre-requisites you must handle yourself:
+- A GCP project exists with a billing account linked (the script does **not** create the project).
+- You have Owner or equivalent permissions on it.
+- `gcloud` and `terraform` CLIs are installed (the script checks and links to install docs if missing).
+
+Re-running `scripts/install.sh` is safe — every phase detects existing state (existing tfvars, state bucket, backend block, Slack secret) and prompts before overwriting.
+
+**Manual** (advanced): if you need fine-grained control over each step, see [terraform/README.md](terraform/README.md) for tfvars setup and the full sequence (bootstrap APIs → `terraform apply` → secret population → `scripts/deploy_forum.sh`).
 
 ### 3. Export Existing Agent Configuration (Optional)
 
@@ -320,30 +272,17 @@ curl -X POST http://localhost:8080/api/v1/slack/events \
 
 ### Deploy to Cloud Run
 
+After the initial install, redeploy with:
+
 ```bash
-# Create secrets in Secret Manager
-echo -n "your-slack-signing-secret" | gcloud secrets create slack-signing-secret \
-  --data-file=- \
-  --replication-policy="automatic"
+./scripts/deploy_forum.sh
+```
 
-# Grant Cloud Run access to secrets
-PROJECT_NUMBER=$(gcloud projects describe $GCP_PROJECT_ID --format="value(projectNumber)")
-gcloud secrets add-iam-policy-binding slack-signing-secret \
-  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor"
+This builds the image via Cloud Build and rolls it out to the existing `the-forum` Cloud Run service. The script auto-detects whether `slack-signing-secret` exists and only binds it as an env when Slack is in use. Secret container creation, IAM bindings, and bucket creation are all owned by terraform (`terraform apply`) — the deploy script just publishes a new revision.
 
-# Deploy using Cloud Build
-gcloud builds submit --config cloudbuild.yaml
+Get the service URL:
 
-# Or deploy directly
-gcloud run deploy the-forum \
-  --source . \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --set-env-vars GCP_PROJECT_ID=$GCP_PROJECT_ID,ENVIRONMENT=production \
-  --set-secrets SLACK_SIGNING_SECRET=slack-signing-secret:latest
-
-# Get Cloud Run URL
+```bash
 gcloud run services describe the-forum \
   --region us-central1 \
   --format 'value(status.url)'
@@ -362,7 +301,7 @@ gcloud run services describe the-forum \
 |----------|----------|-------------|---------|
 | `GCP_PROJECT_ID` | Yes | Your GCP project ID | `my-project-123` |
 | `GCP_LOCATION` | No | GCP location | `us-central1` (default) |
-| `SLACK_SIGNING_SECRET` | Yes | Comma-separated Slack app signing secrets (one per bot) | `secret1,secret2` |
+| `SLACK_SIGNING_SECRET` | If using Slack | Comma-separated Slack app signing secrets (one per bot). Read from Secret Manager in production. | `secret1,secret2` |
 | `FIRESTORE_AGENTS_COLLECTION` | No | Firestore collection name | `agents` (default) |
 | `FIRESTORE_SESSIONS_COLLECTION` | No | Firestore collection name | `sessions` (default) |
 | `SESSION_TIMEOUT_MINUTES` | No | Session expiry (minutes of inactivity) | `30` (default) |
