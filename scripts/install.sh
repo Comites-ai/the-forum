@@ -71,6 +71,10 @@ GCP project. It will:
 Pre-requisites you must handle yourself:
   • A GCP project exists and has a billing account linked.
   • You have Owner or equivalent permissions on that project.
+  • Google Cloud CLI (gcloud) installed.
+      Install: https://cloud.google.com/sdk/docs/install
+  • Terraform 1.2 or newer installed (lifecycle preconditions require 1.2+).
+      Install: https://developer.hashicorp.com/terraform/install
 
 You can cancel any time with Ctrl-C.
 
@@ -184,20 +188,20 @@ phase_4_migration() {
 phase_5_platforms() {
     say "Phase 5: Platforms"
     echo "Which messaging platforms will you use? Space-separated."
-    echo "Options: ${BOLD}slack${NC} ${BOLD}chat${NC} ${BOLD}telegram${NC}"
+    echo "Options: ${BOLD}slack${NC} ${BOLD}gchat${NC} (Google Chat) ${BOLD}telegram${NC}"
     read -rp "Platforms: " platforms_input
     USE_SLACK=false
-    USE_CHAT=false
+    USE_GCHAT=false
     USE_TELEGRAM=false
     for p in $platforms_input; do
         case "$p" in
             slack)    USE_SLACK=true ;;
-            chat)     USE_CHAT=true ;;
+            gchat)    USE_GCHAT=true ;;
             telegram) USE_TELEGRAM=true ;;
             *) warn "Unknown platform: $p (ignored)" ;;
         esac
     done
-    if [[ "$USE_SLACK" == "false" && "$USE_CHAT" == "false" && "$USE_TELEGRAM" == "false" ]]; then
+    if [[ "$USE_SLACK" == "false" && "$USE_GCHAT" == "false" && "$USE_TELEGRAM" == "false" ]]; then
         warn "No platforms selected. The Forum will install but you'll need to wire one up later."
     fi
     ok "Selected: ${platforms_input:-(none)}"
@@ -487,7 +491,7 @@ ${BOLD}[ ] SLACK${NC}
 EOF
     fi
 
-    if [[ "$USE_CHAT" == "true" ]]; then
+    if [[ "$USE_GCHAT" == "true" ]]; then
         cat <<EOF
 ${BOLD}[ ] GOOGLE CHAT${NC}
     1. GCP Console → APIs & Services → Google Chat API → Configuration
@@ -509,7 +513,7 @@ ${BOLD}[ ] TELEGRAM (per agent)${NC}
 EOF
     fi
 
-    if [[ "$USE_SLACK" == "false" && "$USE_CHAT" == "false" && "$USE_TELEGRAM" == "false" ]]; then
+    if [[ "$USE_SLACK" == "false" && "$USE_GCHAT" == "false" && "$USE_TELEGRAM" == "false" ]]; then
         echo "  No platforms selected. When you're ready, see docs/FOR_AGENT_DEVELOPERS.md."
         echo
     fi
