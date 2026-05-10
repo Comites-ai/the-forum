@@ -1,5 +1,16 @@
 # Cloud Run Service Configuration
 
+# Wait for the slack-signing-secret IAM binding to propagate before Cloud
+# Run validates the bound secret. GCP IAM is eventually consistent — even
+# after the binding API call returns, Cloud Run's revision-creation auth
+# check can take 30+ seconds to see it. Without this delay, fresh installs
+# fail with "Permission denied on secret ... for Revision service account".
+resource "time_sleep" "wait_for_slack_secret_iam" {
+  count           = var.use_slack ? 1 : 0
+  depends_on      = [google_secret_manager_secret_iam_member.compute_slack_signing_secret]
+  create_duration = "30s"
+}
+
 resource "google_cloud_run_v2_service" "forum" {
   name     = var.cloud_run_service_name
   location = var.region
@@ -90,7 +101,8 @@ resource "google_cloud_run_v2_service" "forum" {
   depends_on = [
     google_project_service.run,
     google_storage_bucket.slack_files,
-    google_secret_manager_secret.slack_signing_secret
+    google_secret_manager_secret.slack_signing_secret,
+    time_sleep.wait_for_slack_secret_iam,
   ]
 
   # Ignore changes made outside Terraform (e.g., via cloudbuild.yaml or manual deployment)

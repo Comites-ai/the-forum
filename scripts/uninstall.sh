@@ -434,6 +434,12 @@ phase_9_summary() {
     cat <<EOF
 ${BOLD}=== Uninstall complete ===${NC}
 
+${YELLOW}Wait ~5 minutes before re-installing.${NC} Firestore holds the (default)
+database ID in a tombstone state for several minutes after deletion;
+re-creating before the cooldown clears fails with "Database ID '(default)'
+is not available". This is GCP behavior, not something the install
+script can work around.
+
 Local artifacts kept (delete manually for a clean reset):
   - $REPO_ROOT/.env
   - $REPO_ROOT/terraform/terraform.tfvars
