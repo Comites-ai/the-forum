@@ -1,3 +1,6 @@
+# Copyright (C) 2025 Comites.ai
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """FastAPI application entry point."""
 import logging
 from contextlib import asynccontextmanager
@@ -109,6 +112,17 @@ def create_app() -> FastAPI:
                 "service": settings.app_name,
                 "environment": settings.environment,
                 "status": "running",
+            }
+        )
+
+    @app.get("/source")
+    async def source_code():
+        """AGPL-3.0 compliance: Link to source code."""
+        return JSONResponse(
+            content={
+                "license": "AGPL-3.0",
+                "repository": "https://github.com/Comites-ai/the-forum",
+                "message": "This software is licensed under AGPL-3.0. You are entitled to the source code.",
             }
         )
 

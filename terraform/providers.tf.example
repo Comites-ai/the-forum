@@ -1,0 +1,56 @@
+# Terraform Provider Configuration — DOCUMENTATION
+#
+# The actual providers.tf in this repo ships with the backend "gcs" block
+# COMMENTED OUT, so a fresh clone can be inspected without errors. This
+# file is the same providers.tf with the backend uncommented and explained
+# — it shows what your local providers.tf will look like after running
+# scripts/install.sh.
+#
+# WHAT install.sh DOES TO providers.tf:
+#   • Detects the missing/commented backend block
+#   • Rewrites providers.tf in place with a real backend "gcs" block,
+#     populating the bucket name from your project ID:
+#       bucket = "${PROJECT_ID}-terraform-state"
+#       prefix = "the-forum/state"
+#
+# That modified providers.tf is operator-specific (your bucket name shows
+# up in it), so DO NOT commit it. Leave the modification as a local
+# working-tree change. Re-running install.sh against an existing backend
+# block is a no-op.
+#
+# RUNNING terraform MANUALLY (without install.sh):
+#   1. Copy this file's backend block into providers.tf, replacing
+#      YOUR_PROJECT_ID with your real GCP project ID.
+#   2. Bootstrap the state bucket (it must already exist):
+#        gcloud storage buckets create gs://YOUR_PROJECT_ID-terraform-state \
+#          --project=YOUR_PROJECT_ID \
+#          --location=us-central1 \
+#          --uniform-bucket-level-access \
+#          --public-access-prevention
+#        gcloud storage buckets update gs://YOUR_PROJECT_ID-terraform-state --versioning
+#   3. Run: terraform init
+
+terraform {
+  required_version = ">= 1.2"
+
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 5.0"
+    }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.11"
+    }
+  }
+
+  backend "gcs" {
+    bucket = "YOUR_PROJECT_ID-terraform-state"
+    prefix = "the-forum/state"
+  }
+}
+
+provider "google" {
+  project = var.project_id
+  region  = var.region
+}

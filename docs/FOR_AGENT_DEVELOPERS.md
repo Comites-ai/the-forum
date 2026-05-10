@@ -1,8 +1,8 @@
-# Agent Deployment - Middleware Integration
+# Agent Deployment - The Forum Integration
 
-This guide covers how to integrate your Vertex AI agent with the multi-platform middleware, supporting Slack, Google Chat, and Telegram.
+This guide covers how to integrate your Vertex AI agent with The Forum, supporting Slack, Google Chat, and Telegram.
 
-⚠️ **IMPORTANT**: Copy this file to your agent repository (e.g., `growth-coach-agent/MIDDLEWARE_INTEGRATION.md`) so you see it when working on the agent!
+⚠️ **IMPORTANT**: Copy this file to your agent repository (e.g., `growth-coach-agent/THE_FORUM_INTEGRATION.md`) so you see it when working on the agent!
 
 ## Quick Start
 
@@ -140,13 +140,13 @@ adk deploy agent_engine \
 export NEW_AGENT_VERTEX_ID="projects/YOUR_PROJECT/locations/us-central1/reasoningEngines/YOUR_ENGINE_ID"
 ```
 
-### Step 4: Register Agent with Middleware
+### Step 4: Register Agent with The Forum
 
 **Option A: Use the Template Registration Script (Recommended)**
 
 ```bash
 # 1. Copy the template to your agent repository
-cp /path/to/slack-vertex-ai-middleware/docs/scripts/register_agent_template.py \
+cp /path/to/the-forum/docs/scripts/register_agent_template.py \
    /path/to/your-agent/register_agent.py
 
 # 2. Edit the configuration section in register_agent.py
@@ -159,7 +159,7 @@ python register_agent.py
 
 # This script will:
 # 1. Register your agent in Firestore with the platforms array structure
-# 2. Include legacy fields for backward compatibility with the middleware
+# 2. Include legacy fields for backward compatibility with The Forum
 # 3. Support multiple platforms (Slack, Google Chat, Telegram)
 # 4. Output confirmation and next steps
 ```
@@ -180,16 +180,16 @@ python scripts/deploy_agent.py \
 ```
 
 **Important Notes:**
-- The middleware currently requires **legacy fields** (`slack_bot_id` at root level) for lookups
+- The Forum currently requires **legacy fields** (`slack_bot_id` at root level) for lookups
 - The registration script includes both the new `platforms` array AND legacy fields for compatibility
-- Future middleware updates will migrate to platform-based lookups only
+- Future updates will migrate to platform-based lookups only
 
 ### Step 5: Configure Slack Events API
 
 ```bash
-# The middleware needs to receive messages from Slack
+# The Forum needs to receive messages from Slack
 
-# Get your middleware URL:
+# Get your Forum URL:
 # - Local dev: Your ngrok URL (e.g., https://abc123.ngrok.io)
 # - Production: Your Cloud Run URL
 
@@ -197,7 +197,7 @@ python scripts/deploy_agent.py \
 # 1. Go to https://api.slack.com/apps → Your new app
 # 2. Navigate to "Event Subscriptions"
 # 3. Enable Events
-# 4. Set Request URL: https://YOUR_MIDDLEWARE_URL/api/v1/slack/events
+# 4. Set Request URL: https://YOUR_FORUM_URL/api/v1/slack/events
 # 5. Wait for green checkmark ✓ (verification success)
 # 6. Under "Subscribe to bot events", add: message.im
 # 7. Click "Save Changes"
@@ -218,7 +218,7 @@ python scripts/deploy_agent.py \
 #   - Check your terminal running uvicorn for logs
 
 # Production:
-gcloud run logs read slack-vertex-middleware \
+gcloud run logs read the-forum \
   --region us-central1 \
   --limit 50
 ```
@@ -269,7 +269,7 @@ Follow these steps when creating a completely new agent and want to make it avai
 
 ### Overview
 
-Google Chat bots have a unique requirement: **each bot needs its own dedicated GCP project**. This is due to Google Chat API restrictions. The middleware provides terraform templates to automate the infrastructure setup.
+Google Chat bots have a unique requirement: **each bot needs its own dedicated GCP project**. This is due to Google Chat API restrictions. The Forum provides terraform templates to automate the infrastructure setup.
 
 ### Prerequisites
 
@@ -291,7 +291,7 @@ mkdir google-chat-terraform
 cd google-chat-terraform
 
 # 2. Copy the terraform templates from the middleware repo
-cp /path/to/slack-vertex-ai-middleware/docs/terraform-templates/agent-project/* .
+cp /path/to/the-forum/docs/terraform-templates/agent-project/* .
 
 # 3. Create your terraform.tfvars from the example
 cp terraform.tfvars.example terraform.tfvars
@@ -378,7 +378,7 @@ gcloud iam service-accounts keys create my-agent-sa-key.json \
   --iam-account=$BOT_SA_EMAIL \
   --project=$BOT_PROJECT_ID
 
-# Store it in the middleware project's Secret Manager
+# Store it in The Forum's Secret Manager
 # Replace 'vertex-ai-middleware-prod' with your middleware project ID
 gcloud secrets versions add my-agent-credentials \
   --data-file=my-agent-sa-key.json \
@@ -387,8 +387,8 @@ gcloud secrets versions add my-agent-credentials \
 # IMPORTANT: Delete the local key file for security
 rm -f my-agent-sa-key.json
 
-# Grant the middleware's Cloud Run service account access to this secret
-# (if not already done in middleware terraform)
+# Grant The Forum's Cloud Run service account access to this secret
+# (if not already done in terraform)
 export MIDDLEWARE_PROJECT_ID="vertex-ai-middleware-prod"
 export MIDDLEWARE_PROJECT_NUMBER=$(gcloud projects describe $MIDDLEWARE_PROJECT_ID --format="value(projectNumber)")
 export MIDDLEWARE_SA="${MIDDLEWARE_PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
@@ -418,20 +418,20 @@ echo "Go to: https://console.cloud.google.com/apis/api/chat.googleapis.com/hango
 #    - ✓ Join spaces and group conversations
 # 4. Connection settings:
 #    - Select "App URL"
-#    - Bot URL: https://YOUR_MIDDLEWARE_URL/api/v1/google-chat/events
-#    - Example: https://slack-vertex-middleware-404939446326.us-central1.run.app/api/v1/google-chat/events
+#    - Bot URL: https://YOUR_FORUM_URL/api/v1/google-chat/events
+#    - Example: https://the-forum-404939446326.us-central1.run.app/api/v1/google-chat/events
 # 5. Permissions:
 #    - "Specific people and groups" (add test users for now)
 #    - Or "Anyone in your domain" for broader access
 # 6. Click "Save"
 ```
 
-### Step 5: Enable Google Chat in Middleware
+### Step 5: Enable Google Chat in The Forum
 
-Register your agent with the middleware and enable the Google Chat platform:
+Register your agent with The Forum and enable the Google Chat platform:
 
 ```bash
-cd /path/to/slack-vertex-ai-middleware
+cd /path/to/the-forum
 
 # Get your agent's Firestore ID
 # If you don't know it, list all agents:
@@ -475,7 +475,7 @@ echo $BOT_SA_EMAIL
 # 5. You should get a response from your Vertex AI agent
 
 # Check logs if no response:
-gcloud run logs read slack-vertex-middleware \
+gcloud run logs read the-forum \
   --project vertex-ai-middleware-prod \
   --region us-central1 \
   --limit 50
@@ -485,12 +485,12 @@ gcloud run logs read slack-vertex-middleware \
 
 When a user messages your Google Chat bot:
 
-1. Google Chat sends the event to the middleware's `/api/v1/google-chat/events` endpoint
-2. Middleware looks up your agent in Firestore (using the Google Chat space info)
-3. Middleware retrieves the service account credentials from Secret Manager
-4. Middleware creates/retrieves a session for the user
-5. Middleware sends the message to your Vertex AI agent
-6. Middleware streams the response back to Google Chat using the bot's service account
+1. Google Chat sends the event to The Forum's `/api/v1/google-chat/events` endpoint
+2. The Forum looks up your agent in Firestore (using the Google Chat space info)
+3. The Forum retrieves the service account credentials from Secret Manager
+4. The Forum creates/retrieves a session for the user
+5. The Forum sends the message to your Vertex AI agent
+6. The Forum streams the response back to Google Chat using the bot's service account
 
 ### Platform Configuration in Firestore
 
@@ -520,9 +520,9 @@ You can have multiple platforms enabled (e.g., both Slack and Google Chat).
 - Wait a few minutes for Google's systems to index the bot
 
 **"The bot didn't respond" error:**
-- Check middleware logs for errors
+- Check The Forum logs for errors
 - Verify the bot URL is correct in Google Chat configuration
-- Ensure the middleware is deployed and accessible
+- Ensure The Forum is deployed and accessible
 - Verify the secret name matches in both terraform and enable script
 
 **Permission denied errors:**
@@ -571,7 +571,7 @@ Telegram bots use the Telegram Bot API and communicate via webhooks. Unlike Slac
 Before starting, ensure you have:
 - Telegram account (personal account, no business account needed)
 - Your agent deployed to Vertex AI (Reasoning Engine)
-- Access to the middleware's GCP project
+- Access to The Forum's GCP project
 
 ### Step 1: Create Telegram Bot via BotFather
 
@@ -612,7 +612,7 @@ echo -n "$TELEGRAM_BOT_TOKEN" | gcloud secrets versions add ${BOT_ACCOUNT_ID}-te
   --data-file=- \
   --project=$PROJECT_ID
 
-# Grant middleware access to the secret
+# Grant The Forum access to the secret
 export MIDDLEWARE_PROJECT_ID="vertex-ai-middleware-prod"
 export MIDDLEWARE_PROJECT_NUMBER=$(gcloud projects describe $MIDDLEWARE_PROJECT_ID --format="value(projectNumber)")
 export MIDDLEWARE_SA="${MIDDLEWARE_PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
@@ -625,11 +625,11 @@ gcloud secrets add-iam-policy-binding ${BOT_ACCOUNT_ID}-telegram-token \
 
 ### Step 3: Configure Telegram Webhook
 
-The middleware webhook URL is **per-agent**: each Telegram bot must register
+The Forum webhook URL is **per-agent**: each Telegram bot must register
 its own URL of the form `/api/v1/telegram/events/{AGENT_ID}`, where
 `{AGENT_ID}` is the Firestore document ID of the agent that owns this bot.
 Telegram's webhook payload doesn't identify the receiving bot, so the URL
-is how the middleware knows which agent to dispatch to.
+is how The Forum knows which agent to dispatch to.
 
 ```bash
 # Generate a secure random secret for webhook verification
@@ -642,7 +642,7 @@ export AGENT_ID=your-agent-firestore-doc-id
 curl -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
   -H "Content-Type: application/json" \
   -d "{
-    \"url\": \"https://YOUR_MIDDLEWARE_URL/api/v1/telegram/events/${AGENT_ID}\",
+    \"url\": \"https://YOUR_FORUM_URL/api/v1/telegram/events/${AGENT_ID}\",
     \"secret_token\": \"${WEBHOOK_SECRET}\"
   }"
 
@@ -656,7 +656,7 @@ echo "Webhook Secret: $WEBHOOK_SECRET"
 # Store this - you'll need it for the agent config
 ```
 
-### Step 4: Register Agent with Middleware
+### Step 4: Register Agent with The Forum
 
 Add Telegram platform configuration to your agent in Firestore:
 
@@ -712,7 +712,7 @@ Add Telegram platform configuration to your agent in Firestore:
 # 5. You should get a response from your Vertex AI agent
 
 # Check logs if no response:
-gcloud run logs read slack-vertex-middleware \
+gcloud run logs read the-forum \
   --project vertex-ai-middleware-prod \
   --region us-central1 \
   --limit 50 \
@@ -724,7 +724,7 @@ gcloud run logs read slack-vertex-middleware \
 If you already have a user in the system from Slack or Google Chat, link your Telegram identity:
 
 ```bash
-cd /path/to/slack-vertex-ai-middleware
+cd /path/to/the-forum
 
 # First, send a message to the bot so it creates your Telegram user
 # Then check what user ID was created
@@ -745,14 +745,14 @@ python scripts/link_identities.py \
 
 When a user messages your Telegram bot:
 
-1. Telegram sends the update to the middleware's `/api/v1/telegram/events/{AGENT_ID}` endpoint
+1. Telegram sends the update to The Forum's `/api/v1/telegram/events/{AGENT_ID}` endpoint
    (the bot's webhook URL is registered with the agent's Firestore document ID)
-2. Middleware verifies the webhook secret token
-3. Middleware looks up the agent in Firestore by the ID in the URL path
-4. Middleware retrieves the bot token from Secret Manager
-5. Middleware creates/retrieves a session for the user
-6. Middleware sends the message to your Vertex AI agent
-7. Middleware posts the response back to Telegram using the bot token
+2. The Forum verifies the webhook secret token
+3. The Forum looks up the agent in Firestore by the ID in the URL path
+4. The Forum retrieves the bot token from Secret Manager
+5. The Forum creates/retrieves a session for the user
+6. The Forum sends the message to your Vertex AI agent
+7. The Forum posts the response back to Telegram using the bot token
 
 ### Platform Configuration in Firestore
 
@@ -780,13 +780,13 @@ You can have multiple platforms enabled (e.g., Slack + Google Chat + Telegram).
 
 **Bot doesn't respond to messages:**
 - Verify webhook is set correctly: `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`
-- Check webhook URL points to the per-agent path: `https://YOUR_MIDDLEWARE/api/v1/telegram/events/{AGENT_ID}`
+- Check webhook URL points to the per-agent path: `https://YOUR_FORUM/api/v1/telegram/events/{AGENT_ID}`
   (using the wrong agent ID — or the old `/telegram/events` path with no ID — will not route)
 - Verify secret token matches in webhook config and Firestore
-- Check middleware logs for errors
+- Check The Forum logs for errors
 
 **"403 Permission Denied" errors:**
-- Ensure middleware SA has `secretAccessor` role on the bot token secret
+- Ensure The Forum SA has `secretAccessor` role on the bot token secret
 - Verify secret exists: `gcloud secrets describe my-agent-telegram-token --project=my-project`
 
 **Webhook verification failed:**
@@ -796,10 +796,10 @@ You can have multiple platforms enabled (e.g., Slack + Google Chat + Telegram).
 **Bot token invalid:**
 - Get a new token from @BotFather: `/token` command
 - Update the secret in Secret Manager
-- Restart the middleware to pick up the new token
+- Restart The Forum to pick up the new token
 
 **Messages not reaching agent:**
-- Check middleware logs: `gcloud run logs read slack-vertex-middleware --limit=50 | grep telegram`
+- Check middleware logs: `gcloud run logs read the-forum --limit=50 | grep telegram`
 - Verify agent is enabled: Check `platforms[].enabled` in Firestore
 - Ensure Vertex AI agent ID is correct
 
@@ -841,7 +841,7 @@ your-agent-repo/
 
 ## Updating an Existing Agent
 
-When you deploy a new version of an existing agent to Vertex AI, you need to update the middleware.
+When you deploy a new version of an existing agent to Vertex AI, you need to update The Forum.
 
 ### Quick Update (2 minutes)
 
@@ -858,7 +858,7 @@ When you deploy a new version of an existing agent to Vertex AI, you need to upd
    export NEW_VERTEX_AI_AGENT_ID="projects/YOUR_PROJECT/locations/us-central1/agents/NEW_ID"
    ```
 
-2. **Update the middleware**:
+2. **Update The Forum**:
 
    ```bash
    cd /path/to/slack_to_agent_integration
@@ -882,7 +882,7 @@ When you deploy a new version of an existing agent to Vertex AI, you need to upd
 
 ### What This Does
 
-The `deploy_agent.py` script updates Firestore so the middleware knows to route messages to your new agent version.
+The `deploy_agent.py` script updates Firestore so The Forum knows to route messages to your new agent version.
 
 **Without this step**, Slack messages will still go to the OLD agent version!
 
@@ -916,7 +916,7 @@ gcloud firestore documents list agents
 # Check your terminal running uvicorn
 
 # Production:
-gcloud run logs read slack-vertex-middleware \
+gcloud run logs read the-forum \
   --region us-central1 \
   --limit 50 \
   --format json
@@ -976,7 +976,7 @@ grep SLACK_SIGNING_SECRET .env
 **Ensure middleware is running and accessible:**
 ```bash
 # Test health endpoint
-curl https://YOUR_MIDDLEWARE_URL/health
+curl https://YOUR_FORUM_URL/health
 
 # Should return: {"status":"healthy"}
 ```
@@ -1011,16 +1011,16 @@ gcloud firestore documents list sessions --limit=10
 
 ---
 
-## How the Middleware Handles Agent Errors
+## How The Forum Handles Agent Errors
 
-The middleware does its best to keep users from seeing raw failures.
-Most error handling happens in the middleware so agent code can stay
+The Forum does its best to keep users from seeing raw failures.
+Most error handling happens in The Forum so agent code can stay
 simple. A few cases are worth knowing about as an agent developer.
 
 ### Empty agent responses & intelligent error detection
 
 If your agent's response stream finishes without producing any text,
-the middleware analyzes the stream to determine the most likely cause
+The Forum analyzes the stream to determine the most likely cause
 and shows the user an appropriate message. The middleware examines:
 
 1. **Function call vs response counts** — did tools get called but
@@ -1084,7 +1084,7 @@ The middleware logs every empty-response event with detailed diagnostics:
 ```bash
 gcloud logging read \
   'resource.type="cloud_run_revision"
-   AND resource.labels.service_name="slack-vertex-middleware"
+   AND resource.labels.service_name="the-forum"
    AND textPayload:"Empty text extracted"' \
   --project=vertex-ai-middleware-prod \
   --format='value(timestamp,textPayload)' \
@@ -1099,7 +1099,7 @@ Log entries include:
 The pattern `function_call=N function_response=0` is a strong signal
 of a permissions problem with the first tool called.
 
-The middleware does **not** automatically retry these failures, because
+The Forum does **not** automatically retry these failures, because
 the tool calls the agent already made may have side effects (creating
 records, sending notifications, etc.) and replaying the same turn
 could double them up. Fix the underlying agent issue rather than
@@ -1111,14 +1111,14 @@ If the stream ends with no chunks at all (a different failure shape
 that has not been observed in production but is handled defensively),
 the user gets a generic *"I wasn't able to process that request"*
 message instead of the broken-tool one. If the user attached an image
-when this happens, the middleware adds *"I may not be set up to
+when this happens, The Forum adds *"I may not be set up to
 handle images"* — usually a sign your agent's prompt or model doesn't
 have image support enabled.
 
 ### Scheduled job failure tracking
 
 When scheduled jobs produce empty responses (same failure patterns as
-interactive messages), the middleware tracks them in Firestore:
+interactive messages), The Forum tracks them in Firestore:
 
 | Field | Description |
 |---|---|
@@ -1162,14 +1162,14 @@ gcloud logging read \
 
 ### File / image handling
 
-The middleware enforces a single-image policy and rejects files it
+The Forum enforces a single-image policy and rejects files it
 cannot send to the agent **before** calling your agent:
 
 - **Non-image attachments** (PDFs, videos, audio, etc.) → user gets
   *"Sorry, it appears you sent me a file type that I can't read..."*
   and the agent receives the user's text with a `Note to Agent:`
-  prefix explaining that a non-image file was dropped, so your agent
-  knows the user expected an attachment to be attached.
+  prefix explaining that a non-image file was dropped. This lets your
+  agent know the user expected an attachment to be attached.
 - **More than one image** (or a Telegram album) → user gets
   *"Sorry, I can only handle one image at a time..."* and the agent
   is **not** called.
@@ -1186,7 +1186,7 @@ prompt.
 
 ## Full Documentation
 
-See the middleware repo for complete documentation:
+See The Forum repo for complete documentation:
 
 - **Repository**: [Your GitHub Repo URL]
 - **Main README**: [Your Repo]/README.md
@@ -1291,7 +1291,7 @@ export WEBHOOK_SECRET=$(openssl rand -base64 32)
 export AGENT_ID=your-agent-firestore-doc-id
 curl -X POST "https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook" \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://YOUR_MIDDLEWARE_URL/api/v1/telegram/events/'$AGENT_ID'","secret_token":"'$WEBHOOK_SECRET'"}'
+  -d '{"url":"https://YOUR_FORUM_URL/api/v1/telegram/events/'$AGENT_ID'","secret_token":"'$WEBHOOK_SECRET'"}'
 
 # 6. Add Telegram platform to agent in Firestore
 # Use Firestore console to add to platforms array:
@@ -1316,7 +1316,7 @@ curl -X POST "https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook" \
 curl -s https://slack.com/api/auth.test \
   -H "Authorization: Bearer xoxb-your-token" | jq .user_id
 
-# 3. Update middleware
+# 3. Update The Forum
 python scripts/deploy_agent.py \
   --agent-name "Agent Name" \
   --vertex-ai-agent-id "projects/.../reasoningEngines/NEW_ID" \
@@ -1336,16 +1336,16 @@ gcloud firestore documents list agents
 gcloud firestore documents list sessions
 
 # Check logs
-gcloud run logs read slack-vertex-middleware --region us-central1 --limit 50
+gcloud run logs read the-forum --region us-central1 --limit 50
 ```
 
 ---
 
 ## Receiving Images from Slack
 
-The middleware can download images from Slack messages and forward them to your agent. However, **ADK agents are not multimodal by default** - you need to update your agent code to handle images.
+The Forum can download images from Slack messages and forward them to your agent. However, **ADK agents are not multimodal by default** - you need to update your agent code to handle images.
 
-### What the Middleware Sends
+### What The Forum Sends
 
 When a user sends a message (with or without images), the middleware forwards it to your agent with the following structure:
 
@@ -1383,7 +1383,7 @@ When a user sends a message (with or without images), the middleware forwards it
 
 ### User Identity Format
 
-**Important**: The middleware sends the user's **actual name** (not platform IDs) to your agent:
+**Important**: The Forum sends the user's **actual name** (not platform IDs) to your agent:
 
 - **`user_id`**: The user's primary name from Firestore (e.g., "Jonathan Cavell", "Sarah Johnson")
 - **`session_id`**: Combines the user name and Vertex AI session ID (e.g., "Jonathan Cavell:5695302693795397632")
@@ -1393,7 +1393,7 @@ This means your agent recognizes users by their actual name across **both Slack 
 
 **Multi-Platform User Identity:**
 - Users can message your agent from both Slack and Google Chat
-- The middleware maintains a unified user record in Firestore that links both platform identities
+- The Forum maintains a unified user record in Firestore that links both platform identities
 - Your agent always receives the same `user_id` (the person's name) regardless of which platform they're using
 - This enables seamless cross-platform conversations and consistent personalization
 
@@ -1551,13 +1551,13 @@ class MultimodalAgent(LlmAgent):
 
 **Image not appearing in agent input:**
 - Verify `files:read` scope is added to your Slack bot
-- Check middleware logs for download errors
+- Check The Forum logs for download errors
 
 ---
 
 ## Setting Up GCS for Image Storage
 
-When `GCS_BUCKET_NAME` is configured, the middleware uploads images to Google Cloud Storage instead of base64-encoding them. This is recommended for Agent Engine and provides better performance for large images.
+When `GCS_BUCKET_NAME` is configured, The Forum uploads images to Google Cloud Storage instead of base64-encoding them. This is recommended for Agent Engine and provides better performance for large images.
 
 ### Step 1: Create the GCS Bucket
 
@@ -1599,7 +1599,7 @@ gcloud storage buckets describe gs://${BUCKET_NAME} --format="yaml(lifecycle)"
 
 ### Step 3: Grant IAM Permissions
 
-The middleware needs write access to upload files:
+The Forum needs write access to upload files:
 
 ```bash
 # Find your Cloud Run service account (default is the Compute Engine SA)
@@ -1609,7 +1609,7 @@ export MIDDLEWARE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 # Or if you use a custom service account for Cloud Run:
 # export MIDDLEWARE_SA="your-custom-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
-# Grant the middleware write access to the bucket
+# Grant The Forum write access to the bucket
 gcloud storage buckets add-iam-policy-binding gs://${BUCKET_NAME} \
     --member="serviceAccount:${MIDDLEWARE_SA}" \
     --role="roles/storage.objectAdmin"
@@ -1629,9 +1629,9 @@ gcloud storage buckets add-iam-policy-binding gs://${BUCKET_NAME} \
 
 **Note:** If agents run under the same project's default service account, they likely already have access via project-level permissions.
 
-### Step 5: Configure the Middleware
+### Step 5: Configure The Forum
 
-Add to your middleware's `.env` file:
+Add to The Forum's `.env` file:
 
 ```bash
 GCS_BUCKET_NAME=your-project-slack-files
@@ -1641,7 +1641,7 @@ GCS_FILE_PREFIX=slack-files
 ### Verifying the Setup
 
 1. Send an image to your bot via Slack DM
-2. Check middleware logs for: `"Uploaded image to GCS: gs://..."`
+2. Check The Forum logs for: `"Uploaded image to GCS: gs://..."`
 3. Verify the file exists:
    ```bash
    gcloud storage ls gs://${BUCKET_NAME}/slack-files/
@@ -1652,21 +1652,21 @@ GCS_FILE_PREFIX=slack-files
 
 ## Scheduler MCP Server
 
-The middleware hosts a single MCP server — the scheduler — at:
+The Forum hosts a single MCP server — the scheduler — at:
 
 ```
-POST {middleware_url}/api/v1/mcp/scheduler/       (Streamable HTTP, MCP spec 2025-03-26)
+POST {forum_url}/api/v1/mcp/scheduler/       (Streamable HTTP, MCP spec 2025-03-26)
 ```
 
 The trailing slash matters — the path is a Starlette `Mount`, so the bare
 form 307-redirects to `/scheduler/` and most MCP HTTP clients follow with
 GET instead of re-POSTing. Always include the slash.
 
-This is the **one** MCP server the middleware exposes. It wraps the existing `/api/v1/scheduled-jobs` REST API as MCP tools so your agent can manage user reminders directly through the LLM tool loop instead of you maintaining wrapper functions.
+This is the **one** MCP server The Forum exposes. It wraps the existing `/api/v1/scheduled-jobs` REST API as MCP tools so your agent can manage user reminders directly through the LLM tool loop instead of you maintaining wrapper functions.
 
-### Why this one is hosted by the middleware
+### Why this one is hosted by The Forum
 
-- The scheduling logic already lives in the middleware (`app/services/scheduled_job_service.py`) and the data lives in middleware Firestore. Co-hosting saves a network hop and avoids duplicating the service code in every agent.
+- The scheduling logic already lives in The Forum (`app/services/scheduled_job_service.py`) and the data lives in The Forum's Firestore. Co-hosting saves a network hop and avoids duplicating the service code in every agent.
 - `agent_id` is auto-resolved from the API key — your LLM never has to learn its own ID, which removes a category of tool-call mistakes.
 - Authorization (jobs filtered by the calling agent) is enforced server-side.
 
@@ -1694,10 +1694,10 @@ In your agent's terraform directory (copied from [docs/terraform-templates/agent
 
 If you deploy with a custom `--service-account` rather than the project's default compute SA, edit the IAM binding's `member` field to match.
 
-**Step 2 — Generate the key + store its hash** (run from the *middleware* repo, not the agent repo):
+**Step 2 — Generate the key + store its hash** (run from *The Forum* repo, not the agent repo):
 
 ```bash
-cd /path/to/slack-vertex-ai-middleware
+cd /path/to/the-forum
 python scripts/provision_scheduler_api_key.py --agent-id YOUR_AGENT_FIRESTORE_ID
 ```
 
@@ -1727,7 +1727,7 @@ scheduler_toolset = MCPToolset(
         # canonical `/scheduler/` form. The MCP HTTP client follows the
         # redirect with GET instead of re-POSTing, which silently breaks the
         # JSON-RPC handshake.
-        url=f"{os.environ['MIDDLEWARE_URL']}/api/v1/mcp/scheduler/",
+        url=f"{os.environ['FORUM_URL']}/api/v1/mcp/scheduler/",
         headers={"X-API-Key": os.environ["SCHEDULER_MCP_KEY"]},
     ),
 )
@@ -1738,7 +1738,7 @@ root_agent = LlmAgent(
 )
 ```
 
-Your agent populates `MIDDLEWARE_URL` from its config and `SCHEDULER_MCP_KEY` by reading from Secret Manager at startup.
+Your agent populates `FORUM_URL` (The Forum's URL) from its config and `SCHEDULER_MCP_KEY` by reading from Secret Manager at startup.
 
 ### Cron expression reference
 
@@ -1771,13 +1771,13 @@ The REST API at `/api/v1/scheduled-jobs` still works and is not deprecated — s
 
 ## Linking Platform Identities
 
-The middleware supports **cross-platform user identity**, allowing the same person to message your agent from Slack, Google Chat, and Telegram while maintaining a unified conversation history and personalization.
+The Forum supports **cross-platform user identity**, allowing the same person to message your agent from Slack, Google Chat, and Telegram while maintaining a unified conversation history and personalization.
 
 ### How Identity Resolution Works
 
 When a message arrives:
 
-1. **Auto-creation**: If the platform user is new, middleware creates a user with that platform identity
+1. **Auto-creation**: If the platform user is new, The Forum creates a user with that platform identity
 2. **Email linking**: If a user with the same email exists, identities are automatically linked
 3. **Manual linking**: Use `link_identities.py` to merge identities for the same person
 
@@ -1801,7 +1801,7 @@ When a message arrives:
 ### Linking Identities with the Script
 
 ```bash
-cd /path/to/slack-vertex-ai-middleware
+cd /path/to/the-forum
 
 # Step 1: Find the user IDs
 python scripts/check_user_identities.py
@@ -1897,13 +1897,13 @@ If you need to unlink an identity (rare), edit the user document in Firestore:
 
 ## Adding MCP Servers to Your Agent (ADK-native)
 
-The middleware **does not proxy general-purpose MCP servers** (Garmin, GitHub, Filesystem, etc.). Each agent integrates those directly via ADK's `MCPToolset`, owning the connection in its own Reasoning Engine container. This keeps the middleware focused on identity, delivery, and scheduling — not tool routing.
+The Forum **does not proxy general-purpose MCP servers** (Garmin, GitHub, Filesystem, etc.). Each agent integrates those directly via ADK's `MCPToolset`, owning the connection in its own Reasoning Engine container. This keeps The Forum focused on identity, delivery, and scheduling — not tool routing.
 
-> **The one exception is the scheduler MCP**, which the middleware *does* host because the scheduling logic and data live in the middleware's Firestore. See [Scheduler MCP Server](#scheduler-mcp-server) above.
+> **The one exception is the scheduler MCP**, which The Forum *does* host because the scheduling logic and data live in The Forum's Firestore. See [Scheduler MCP Server](#scheduler-mcp-server) above.
 
 ### Why agent-side MCP
 
-- **No middleware changes needed** to add tools — agents own their toolchain end-to-end.
+- **No Forum changes needed** to add tools — agents own their toolchain end-to-end.
 - **Per-user credentials** are easier to handle in agent code, where you already have the user's identity.
 - **Failure isolation**: a flaky MCP server only impacts that one agent, not the whole platform.
 - **Aligned with ADK design**: `MCPToolset` is a first-class ADK primitive.
@@ -1955,7 +1955,7 @@ For Streamable HTTP (the modern MCP spec, recommended over SSE for new servers),
 
 ### Credentials
 
-Agents own their secrets — store them in Secret Manager in your agent's project and inject at deploy time. The middleware no longer needs to read your MCP credentials.
+Agents own their secrets — store them in Secret Manager in your agent's project and inject at deploy time. The Forum no longer needs to read your MCP credentials.
 
 ```bash
 # Store the secret in your agent's project
@@ -1973,7 +1973,7 @@ In your agent code, fetch from Secret Manager at startup (or use a runtime injec
 
 ### Per-user credentials
 
-If the MCP server needs user-specific credentials (Garmin, Gmail, Calendar, etc.), instantiate the toolset **per request** using the calling user's stored credentials, rather than a process-wide token. The middleware passes the user's identity in the message prefix (`[From: Name | platform_id: ...]`); your agent uses that to look up the right credential before constructing the toolset.
+If the MCP server needs user-specific credentials (Garmin, Gmail, Calendar, etc.), instantiate the toolset **per request** using the calling user's stored credentials, rather than a process-wide token. The Forum passes the user's identity in the message prefix (`[From: Name | platform_id: ...]`); your agent uses that to look up the right credential before constructing the toolset.
 
 ### Verification
 

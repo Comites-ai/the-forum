@@ -1,3 +1,6 @@
+# Copyright (C) 2025 Comites.ai
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Pydantic schemas for Slack Events API."""
 from typing import Any, Dict
 from pydantic import BaseModel, Field

@@ -1,3 +1,6 @@
+# Copyright (C) 2025 Comites.ai
+# SPDX-License-Identifier: AGPL-3.0-only
+
 #!/usr/bin/env python3
 """Provision a scheduler MCP API key for an agent.
 

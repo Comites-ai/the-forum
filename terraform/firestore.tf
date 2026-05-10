@@ -1,19 +1,20 @@
 # Firestore Database Configuration
 
-# Note: Firestore database must be created manually or via gcloud
-# Terraform cannot currently create Firestore Native databases
-# Run this command before applying Terraform:
-# gcloud firestore databases create --location=us-central1 --type=firestore-native --project=YOUR_PROJECT_ID
+resource "google_firestore_database" "database" {
+  project     = var.project_id
+  name        = "(default)"
+  location_id = var.region
+  type        = "FIRESTORE_NATIVE"
 
-# This is a placeholder to document the requirement
-resource "null_resource" "firestore_database" {
-  provisioner "local-exec" {
-    command = <<-EOT
-      echo "Firestore database should be created manually:"
-      echo "gcloud firestore databases create --location=${var.region} --type=firestore-native --project=${var.project_id}"
-    EOT
-  }
+  # Without this the google provider defaults to ABANDON for default
+  # databases, meaning 'terraform destroy' silently removes the database
+  # from state but never calls the GCP delete API. The database survives,
+  # and the next 'terraform apply' fails with "Database already exists".
+  # DELETE makes destroy actually delete.
+  delete_protection_state = "DELETE_PROTECTION_DISABLED"
+  deletion_policy         = "DELETE"
 
+  # Firestore requires the API to be enabled first
   depends_on = [
     google_project_service.firestore
   ]

@@ -1,7 +1,7 @@
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: slack-vertex-middleware
+  name: the-forum
   annotations:
     run.googleapis.com/launch-stage: BETA
 spec:
@@ -15,7 +15,7 @@ spec:
       timeoutSeconds: 300
       serviceAccountName: 404939446326-compute@developer.gserviceaccount.com
       containers:
-      - image: gcr.io/vertex-ai-middleware-prod/slack-vertex-middleware:latest
+      - image: gcr.io/vertex-ai-middleware-prod/the-forum:latest
         ports:
         - name: http1
           containerPort: 8080

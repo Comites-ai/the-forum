@@ -1,6 +1,6 @@
-# Adding a New Platform to the Middleware
+# Adding a New Platform to The Forum
 
-This guide documents the complete process for integrating a new messaging platform (like Telegram, WhatsApp, Discord, etc.) into the Slack-Vertex AI Middleware system.
+This guide documents the complete process for integrating a new messaging platform (like Telegram, WhatsApp, Discord, etc.) into The Forum.
 
 ## Table of Contents
 
@@ -13,7 +13,7 @@ This guide documents the complete process for integrating a new messaging platfo
 
 ## Architecture Overview
 
-The middleware uses a **platform abstraction pattern** that allows it to support multiple messaging platforms through a unified interface.
+The Forum uses a **platform abstraction pattern** that allows it to support multiple messaging platforms through a unified interface.
 
 ### Key Components
 
@@ -395,7 +395,7 @@ Add a new section for the platform (follow the pattern of SECTION 4: TELEGRAM):
 #   project   = google_project.agent_project.project_id
 #   secret_id = google_secret_manager_secret.myplatform_bot_token.secret_id
 #   role      = "roles/secretmanager.secretAccessor"
-#   member    = "serviceAccount:slack-vertex-middleware@vertex-ai-middleware-prod.iam.gserviceaccount.com"
+#   member    = "serviceAccount:the-forum@vertex-ai-middleware-prod.iam.gserviceaccount.com"
 # }
 ```
 
@@ -422,11 +422,11 @@ output "myplatform_setup_instructions" {
     4. Grant middleware service account access:
        gcloud secrets add-iam-policy-binding ${var.bot_account_id}-myplatform-token \
          --project=${google_project.agent_project.project_id} \
-         --member="serviceAccount:slack-vertex-middleware@vertex-ai-middleware-prod.iam.gserviceaccount.com" \
+         --member="serviceAccount:the-forum@vertex-ai-middleware-prod.iam.gserviceaccount.com" \
          --role="roles/secretmanager.secretAccessor"
 
     5. Configure webhook in MyPlatform:
-       URL: https://slack-vertex-middleware-mqwj7cavdq-uc.a.run.app/api/v1/myplatform/events
+       URL: https://the-forum-mqwj7cavdq-uc.a.run.app/api/v1/myplatform/events
        Secret: <generate a random secret token>
 
     6. Register agent with middleware Firestore (see FOR_AGENT_DEVELOPERS.md)
@@ -484,7 +484,7 @@ echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add my-agent-myplatform-token
 # Grant middleware access
 gcloud secrets add-iam-policy-binding my-agent-myplatform-token \
   --project=my-agent-prod \
-  --member="serviceAccount:slack-vertex-middleware@vertex-ai-middleware-prod.iam.gserviceaccount.com" \
+  --member="serviceAccount:the-forum@vertex-ai-middleware-prod.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 ```
 
@@ -492,7 +492,7 @@ gcloud secrets add-iam-policy-binding my-agent-myplatform-token \
 
 Set your bot's webhook URL to:
 ```
-https://slack-vertex-middleware-mqwj7cavdq-uc.a.run.app/api/v1/myplatform/events
+https://the-forum-mqwj7cavdq-uc.a.run.app/api/v1/myplatform/events
 ```
 
 ### Step 4: Register Agent with Middleware
@@ -557,19 +557,19 @@ if platform not in valid_platforms:
 
 1. **Deploy to Cloud Run**:
    ```bash
-   bash scripts/deploy_middleware.sh
+   bash scripts/deploy_forum.sh
    ```
 
 2. **Update webhook URL** to production URL:
    ```
-   https://slack-vertex-middleware-mqwj7cavdq-uc.a.run.app/api/v1/myplatform/events
+   https://the-forum-mqwj7cavdq-uc.a.run.app/api/v1/myplatform/events
    ```
 
 3. **Test with real messages**
 
 4. **Monitor Cloud Run logs**:
    ```bash
-   gcloud run services logs read slack-vertex-middleware \
+   gcloud run services logs read the-forum \
      --project vertex-ai-middleware-prod \
      --region us-central1 \
      --limit 50
@@ -578,7 +578,7 @@ if platform not in valid_platforms:
 ### Common Issues
 
 **Issue: 404 Not Found on webhook**
-- Solution: Code not deployed. Run `bash scripts/deploy_middleware.sh`
+- Solution: Code not deployed. Run `bash scripts/deploy_forum.sh`
 
 **Issue: "Agent config missing bot token"**
 - Solution: Check Firestore agent document has correct field names:
@@ -597,7 +597,7 @@ if platform not in valid_platforms:
 
 ### Automatic Identity Creation
 
-When a new user messages the bot, the middleware automatically creates a user record:
+When a new user messages the bot, The Forum automatically creates a user record:
 
 ```python
 {
@@ -620,7 +620,7 @@ If a user already has an account from another platform (Slack, Google Chat), you
 
 #### Method 1: Automatic Email Linking
 
-If both platforms provide email addresses, the middleware will automatically merge accounts based on matching emails.
+If both platforms provide email addresses, The Forum will automatically merge accounts based on matching emails.
 
 #### Method 2: Manual Linking Script
 

@@ -1,3 +1,6 @@
+# Copyright (C) 2025 Comites.ai
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Slack Events API endpoint (v2 - multi-platform architecture)."""
 import logging
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException, Depends

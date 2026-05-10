@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# Deploy the Slack-to-Vertex AI middleware to Cloud Run via Cloud Build.
+# Deploy The Forum to Cloud Run via Cloud Build.
 #
 # Usage:
-#   ./scripts/deploy_middleware.sh                  # deploy from current commit
-#   ./scripts/deploy_middleware.sh --project my-id  # override GCP project
+#   ./scripts/deploy_forum.sh                  # deploy from current commit
+#   ./scripts/deploy_forum.sh --project my-id  # override GCP project
 #
 set -euo pipefail
 
@@ -73,7 +73,7 @@ COMMIT_SHA=$(git rev-parse HEAD)
 COMMIT_SHORT=$(git rev-parse --short HEAD)
 COMMIT_MSG=$(git log -1 --pretty=%s)
 
-echo "=== Middleware Deployment ==="
+echo "=== The Forum Deployment ==="
 echo "  Project:    $PROJECT_ID"
 echo "  Region:     $REGION"
 echo "  GCS Bucket: ${GCS_BUCKET:-<not configured>}"
@@ -81,17 +81,29 @@ echo "  Commit:     $COMMIT_SHORT ($COMMIT_MSG)"
 echo "  Config:     $CONFIG"
 echo ""
 
+# --- Detect whether Slack is in use ---
+# cloudbuild.yaml only adds --set-secrets for Slack when _EXTRA_FLAGS is set.
+# We auto-detect by checking whether terraform created the slack-signing-secret.
+EXTRA_FLAGS=""
+if gcloud secrets describe slack-signing-secret --project="$PROJECT_ID" &>/dev/null; then
+    EXTRA_FLAGS="--set-secrets=SLACK_SIGNING_SECRET=slack-signing-secret:latest"
+    echo "  Slack:    detected (slack-signing-secret present)"
+else
+    echo "  Slack:    not in use (slack-signing-secret absent)"
+fi
+echo ""
+
 # --- Submit build ---
 echo "Submitting Cloud Build..."
 gcloud builds submit "$REPO_ROOT" \
     --config="$REPO_ROOT/$CONFIG" \
     --project="$PROJECT_ID" \
-    --substitutions="COMMIT_SHA=$COMMIT_SHA,_GCP_LOCATION=$REGION,_GCS_BUCKET_NAME=$GCS_BUCKET"
+    --substitutions="COMMIT_SHA=$COMMIT_SHA,_GCP_LOCATION=$REGION,_GCS_BUCKET_NAME=$GCS_BUCKET,_EXTRA_FLAGS=$EXTRA_FLAGS"
 
 echo ""
 
 # --- Route traffic to latest revision ---
-SERVICE_NAME="slack-vertex-middleware"
+SERVICE_NAME="the-forum"
 echo "Routing 100% traffic to latest revision..."
 gcloud run services update-traffic "$SERVICE_NAME" \
     --project="$PROJECT_ID" \

@@ -1,6 +1,17 @@
 # Cloud Run Service Configuration
 
-resource "google_cloud_run_v2_service" "middleware" {
+# Wait for the slack-signing-secret IAM binding to propagate before Cloud
+# Run validates the bound secret. GCP IAM is eventually consistent — even
+# after the binding API call returns, Cloud Run's revision-creation auth
+# check can take 30+ seconds to see it. Without this delay, fresh installs
+# fail with "Permission denied on secret ... for Revision service account".
+resource "time_sleep" "wait_for_slack_secret_iam" {
+  count           = var.use_slack ? 1 : 0
+  depends_on      = [google_secret_manager_secret_iam_member.compute_slack_signing_secret]
+  create_duration = "30s"
+}
+
+resource "google_cloud_run_v2_service" "forum" {
   name     = var.cloud_run_service_name
   location = var.region
   ingress  = "INGRESS_TRAFFIC_ALL"
@@ -10,9 +21,11 @@ resource "google_cloud_run_v2_service" "middleware" {
     service_account = local.default_compute_sa
 
     containers {
-      # Image will be updated by Cloud Build
-      # Initial placeholder image
-      image = "gcr.io/${var.project_id}/${var.cloud_run_service_name}:latest"
+      # Public hello-world placeholder so the first terraform apply succeeds
+      # before any real image has been pushed. Cloud Build (deploy_forum.sh)
+      # then deploys the real image; subsequent applies ignore the image
+      # field via the lifecycle.ignore_changes block below.
+      image = "us-docker.pkg.dev/cloudrun/container/hello"
 
       # Environment variables
       env {
@@ -35,13 +48,19 @@ resource "google_cloud_run_v2_service" "middleware" {
         value = var.environment
       }
 
-      # Reference secrets
-      env {
-        name = "SLACK_SIGNING_SECRET"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.slack_signing_secret.secret_id
-            version = "latest"
+      # Reference secrets — Slack binding only when var.use_slack is true.
+      # Cloudbuild's --set-secrets in cloudbuild.yaml takes over after the
+      # initial create (see lifecycle.ignore_changes below), so this is the
+      # bootstrap value only.
+      dynamic "env" {
+        for_each = var.use_slack ? [1] : []
+        content {
+          name = "SLACK_SIGNING_SECRET"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.slack_signing_secret[0].secret_id
+              version = "latest"
+            }
           }
         }
       }
@@ -54,16 +73,12 @@ resource "google_cloud_run_v2_service" "middleware" {
         }
       }
 
-      # Startup probe
-      startup_probe {
-        http_get {
-          path = "/health"
-        }
-        initial_delay_seconds = 0
-        timeout_seconds       = 1
-        period_seconds        = 3
-        failure_threshold     = 3
-      }
+      # No explicit startup_probe: Cloud Run's default TCP probe gives a
+      # ~4-minute boot budget, which fits the cold-start cost of importing
+      # vertexai + google-cloud-aiplatform + firestore + slack-sdk + mcp on
+      # 1 vCPU. The previous explicit HTTP probe to /health (period=3,
+      # failure_threshold=3 → ~9s budget) consistently killed fresh
+      # revisions before uvicorn finished importing app.main.
     }
 
     # Scaling configuration
@@ -82,14 +97,14 @@ resource "google_cloud_run_v2_service" "middleware" {
   depends_on = [
     google_project_service.run,
     google_storage_bucket.slack_files,
-    google_secret_manager_secret.slack_signing_secret
+    google_secret_manager_secret.slack_signing_secret,
+    time_sleep.wait_for_slack_secret_iam,
   ]
 
   # Ignore changes made outside Terraform (e.g., via cloudbuild.yaml or manual deployment)
   lifecycle {
     ignore_changes = [
       template[0].containers[0].env,
-      template[0].containers[0].startup_probe,
       template[0].scaling,
       template[0].containers[0].resources,
       template[0].containers[0].image,
@@ -101,7 +116,7 @@ resource "google_cloud_run_v2_service" "middleware" {
 
 # Allow unauthenticated invocations
 resource "google_cloud_run_service_iam_member" "noauth" {
-  service  = google_cloud_run_v2_service.middleware.name
+  service  = google_cloud_run_v2_service.forum.name
   location = var.region
   role     = "roles/run.invoker"
   member   = "allUsers"

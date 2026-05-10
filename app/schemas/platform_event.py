@@ -1,3 +1,6 @@
+# Copyright (C) 2025 Comites.ai
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Platform-agnostic event models for unified message processing."""
 from typing import Optional, Any
 from pydantic import BaseModel, Field

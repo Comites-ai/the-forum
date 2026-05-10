@@ -1,3 +1,6 @@
+# Copyright (C) 2025 Comites.ai
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Google Chat Events API endpoint."""
 import logging
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException, Depends

@@ -5,33 +5,35 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/slack-vertex-middleware:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/the-forum:$COMMIT_SHA'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/slack-vertex-middleware:latest'
+      - 'gcr.io/$PROJECT_ID/the-forum:latest'
       - '.'
 
   # Push the image (needed before deploy)
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '--all-tags', 'gcr.io/$PROJECT_ID/slack-vertex-middleware']
+    args: ['push', '--all-tags', 'gcr.io/$PROJECT_ID/the-forum']
 
-  # Deploy to Cloud Run
+  # Deploy to Cloud Run.
+  # _EXTRA_FLAGS is set by deploy_forum.sh based on whether the
+  # slack-signing-secret exists in the project (Slack is in use). When Slack
+  # is not in use, _EXTRA_FLAGS is empty and no --set-secrets flag is passed.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
+    entrypoint: bash
     args:
-      - 'run'
-      - 'deploy'
-      - 'slack-vertex-middleware'
-      - '--image'
-      - 'gcr.io/$PROJECT_ID/slack-vertex-middleware:$COMMIT_SHA'
-      - '--region'
-      - 'us-central1'
-      - '--platform'
-      - 'managed'
-      - '--allow-unauthenticated'
-      - '--set-env-vars'
-      - 'GCP_PROJECT_ID=$PROJECT_ID,ENVIRONMENT=production,GCP_LOCATION=$_GCP_LOCATION,GCS_BUCKET_NAME=$_GCS_BUCKET_NAME'
-      - '--set-secrets'
-      - 'SLACK_SIGNING_SECRET=slack-signing-secret:latest'
+      - '-c'
+      - |
+        set -eu
+        gcloud run deploy the-forum \
+          --image="gcr.io/$PROJECT_ID/the-forum:$COMMIT_SHA" \
+          --region="$_GCP_LOCATION" \
+          --platform=managed \
+          --allow-unauthenticated \
+          --set-env-vars="GCP_PROJECT_ID=$PROJECT_ID,ENVIRONMENT=production,GCP_LOCATION=$_GCP_LOCATION,GCS_BUCKET_NAME=$_GCS_BUCKET_NAME" \
+          $_EXTRA_FLAGS
+
+substitutions:
+  _EXTRA_FLAGS: ''
 
 options:
   logging: CLOUD_LOGGING_ONLY
