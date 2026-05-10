@@ -26,4 +26,4 @@ Fixes #
 
 - [ ] My code follows the project's style guidelines
 - [ ] I have updated documentation as needed
-- [ ] I have signed the CLA (the EasyCLA bot will prompt you if needed)
+- [ ] I have signed the CLA (CLA Assistant will prompt me on this PR) and emailed the supplemental information described in [CONTRIBUTING.md](../CONTRIBUTING.md#supplemental-information-by-email) to cla@comites.ai

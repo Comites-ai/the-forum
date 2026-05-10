@@ -18,7 +18,9 @@ I have no intention of ever making this software proprietary. My goal is to ensu
 
 ## Contributor License Agreement (CLA)
 
-All contributors must sign our Contributor License Agreement via EasyCLA before their first pull request can be merged.
+All contributors must sign our Contributor License Agreement before their first pull request can be merged. We use [CLA Assistant](https://cla-assistant.io/) to handle the signing.
+
+You can read the full CLA here: <https://gist.github.com/Jonathan-Comites/5825b5747f2446c9c4f973989858001f>
 
 ### Why a CLA?
 
@@ -28,13 +30,27 @@ By signing the CLA, you're granting Comites.ai a license to use your contributio
 
 ### How to Sign
 
-When you open your first pull request, the EasyCLA bot will guide you through the signing process.
+When you open your first pull request, CLA Assistant will post a comment with a link. Follow the link, sign in with GitHub, and click the button to agree. **The CLA is effective the moment you do that** — your PR is unblocked immediately.
+
+### Supplemental Information by Email
+
+CLA Assistant records your GitHub username, email, and agreement timestamp. There is some additional information we'd like to have on file even though the CLA is already in force. Please email it to **cla@comites.ai** at your convenience. Use a subject line like `CLA supplemental info — <your GitHub username>` so we can match it to your signature.
+
+Always include:
+
+- **Full legal name** — the name CLA Assistant captured is your GitHub display name, which may not match your legal name.
+
+Include the following only **if Section 4 of the CLA applies to you** (i.e., you are contributing on behalf of an employer or other entity):
+
+- **Employer full legal name**
+- **Your title or role at Employer**
+- **Basis for your authority to bind** the employer to the CLA (e.g., signed delegation, role-based authority, employment policy, written approval from a specific authorized person, etc.)
 
 ### Contributing as Part of Your Job
 
-If you are contributing to this codebase as part of your employment, we assume that when you sign the CLA, you are also signing it on behalf of your company. **You are responsible for ensuring you have the proper approvals from your employer to do so.**
+If you are contributing to this codebase as part of your employment, we assume that when you sign the CLA, you are also signing it on behalf of your company. **You are responsible for ensuring you have the proper approvals from your employer to do so**, and we ask you to document this in your supplemental email (above).
 
-If your company would prefer to have a formal Corporate CLA in place, please contact us to arrange that.
+If your company would prefer to have a formal Corporate CLA in place, please contact us at cla@comites.ai to arrange that.
 
 ## How to Contribute
 
@@ -50,7 +66,7 @@ If your company would prefer to have a formal Corporate CLA in place, please con
 2. **Make your changes** following our code standards (below)
 3. **Test your changes** thoroughly
 4. **Submit a pull request** with a clear description of what you've done
-5. **Sign the CLA** when prompted by the EasyCLA bot
+5. **Sign the CLA** when prompted by CLA Assistant, and email cla@comites.ai with the supplemental information described above
 
 ### Pull Request Guidelines
 
