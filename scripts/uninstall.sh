@@ -283,7 +283,103 @@ phase_6_destroy() {
     fi
     (cd "$REPO_ROOT/terraform" && terraform destroy -auto-approve)
     ok "Terraform destroy complete."
+
+    destroy_backstop
     hr
+}
+
+# Backstop: check whether any terraform-managed resource that would block a
+# re-install survived terraform destroy, and offer to clean it up via gcloud.
+# Most commonly this catches Firestore databases when legacy state has
+# deletion_policy=ABANDON, but it also covers Cloud Run, Scheduler,
+# scheduler-sa, the slack-signing-secret container, and the two GCS buckets.
+# Project IAM bindings, org policies, and API enablement are not checked
+# because terraform destroy handles those reliably (or the resource has
+# disable_on_destroy=false).
+destroy_backstop() {
+    say "Verifying terraform-managed resources are actually gone..."
+
+    local survivors=()
+
+    if gcloud run services describe the-forum --region="$REGION" --project="$PROJECT_ID" >/dev/null 2>&1; then
+        survivors+=("cloud-run:the-forum")
+    fi
+    if gcloud scheduler jobs describe scheduled-jobs-dispatcher --location="$REGION" --project="$PROJECT_ID" >/dev/null 2>&1; then
+        survivors+=("scheduler-job:scheduled-jobs-dispatcher")
+    fi
+    if gcloud iam service-accounts describe "scheduler-sa@${PROJECT_ID}.iam.gserviceaccount.com" --project="$PROJECT_ID" >/dev/null 2>&1; then
+        survivors+=("service-account:scheduler-sa")
+    fi
+    if gcloud secrets describe slack-signing-secret --project="$PROJECT_ID" >/dev/null 2>&1; then
+        survivors+=("secret:slack-signing-secret")
+    fi
+    for bucket in "${PROJECT_ID}-slack-files" "${PROJECT_ID}-staging"; do
+        if gcloud storage buckets describe "gs://$bucket" --project="$PROJECT_ID" >/dev/null 2>&1; then
+            survivors+=("bucket:$bucket")
+        fi
+    done
+    if gcloud firestore databases describe --database='(default)' --project="$PROJECT_ID" >/dev/null 2>&1; then
+        survivors+=("firestore-database:(default)")
+    fi
+
+    if [[ ${#survivors[@]} -eq 0 ]]; then
+        ok "  All terraform-managed resources successfully destroyed."
+        return 0
+    fi
+
+    warn "Found ${#survivors[@]} terraform-managed resource(s) that survived terraform destroy:"
+    for s in "${survivors[@]}"; do
+        echo "    - $s"
+    done
+    echo
+    echo "  Most common cause: a resource's deletion_policy is ABANDON in state, so"
+    echo "  terraform removed it from state without calling the GCP delete API."
+    echo "  Without cleanup these will block the next install.sh run with 'already exists'."
+    echo
+
+    if ! prompt_yn "Delete these via gcloud now?" y; then
+        warn "Skipped. Survivors will block re-install — clean up manually before retrying."
+        return 0
+    fi
+
+    for s in "${survivors[@]}"; do
+        local kind="${s%%:*}"
+        local name="${s#*:}"
+        case "$kind" in
+            cloud-run)
+                gcloud run services delete "$name" --region="$REGION" --project="$PROJECT_ID" --quiet
+                ok "  Deleted Cloud Run service: $name"
+                ;;
+            scheduler-job)
+                gcloud scheduler jobs delete "$name" --location="$REGION" --project="$PROJECT_ID" --quiet
+                ok "  Deleted Cloud Scheduler job: $name"
+                ;;
+            service-account)
+                gcloud iam service-accounts delete "${name}@${PROJECT_ID}.iam.gserviceaccount.com" --project="$PROJECT_ID" --quiet
+                ok "  Deleted service account: $name"
+                ;;
+            secret)
+                gcloud secrets delete "$name" --project="$PROJECT_ID" --quiet
+                ok "  Deleted secret: $name"
+                ;;
+            bucket)
+                # Empty bucket first (force destroy)
+                gcloud storage rm --recursive "gs://$name/**" --quiet 2>&1 | tail -1 || true
+                gcloud storage buckets delete "gs://$name" --project="$PROJECT_ID" --quiet
+                ok "  Deleted bucket: $name"
+                ;;
+            firestore-database)
+                local protection_state
+                protection_state=$(gcloud firestore databases describe --database="$name" --project="$PROJECT_ID" \
+                    --format='value(deleteProtectionState)')
+                if [[ "$protection_state" == "DELETE_PROTECTION_ENABLED" ]]; then
+                    gcloud firestore databases update --database="$name" --project="$PROJECT_ID" --no-delete-protection
+                fi
+                gcloud firestore databases delete --database="$name" --project="$PROJECT_ID" --quiet
+                ok "  Deleted Firestore database: $name"
+                ;;
+        esac
+    done
 }
 
 # --- Phase 7: Optional gcr.io image cleanup ---
