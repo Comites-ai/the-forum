@@ -100,6 +100,8 @@ backend "gcs" {
 }
 ```
 
+See [providers.tf.example](providers.tf.example) for the full documented template, including what `scripts/install.sh` writes for you and how to recreate it manually. The local providers.tf with your real bucket name is operator-specific — don't commit it.
+
 ## Deployment
 
 ### 1. Initialize Terraform
