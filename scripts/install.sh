@@ -342,13 +342,13 @@ EOF
 # --- Phase 6: terraform apply ---
 phase_6_apply() {
     say "Phase 6: terraform plan + apply"
-    (cd "$REPO_ROOT/terraform" && terraform plan -out=install.tfplan)
+    (cd "$REPO_ROOT/terraform" && terraform plan)
     echo
     if ! prompt_yn "Apply this plan?" y; then
         echo "Aborted before apply."
         exit 0
     fi
-    (cd "$REPO_ROOT/terraform" && terraform apply install.tfplan && rm -f install.tfplan)
+    (cd "$REPO_ROOT/terraform" && terraform apply -auto-approve)
     ok "Terraform apply complete."
     hr
 }
