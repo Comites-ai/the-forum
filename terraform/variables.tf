@@ -46,3 +46,10 @@ variable "use_slack" {
   type        = bool
   default     = true
 }
+
+variable "slack_signing_secret_value" {
+  description = "Value to populate slack-signing-secret with (one Slack signing secret, or comma-separated list for multiple Slack apps). Required when use_slack is true. Pass via TF_VAR_slack_signing_secret_value rather than terraform.tfvars to keep it out of disk plaintext. Stored in terraform state."
+  type        = string
+  sensitive   = true
+  default     = ""
+}

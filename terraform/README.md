@@ -60,6 +60,7 @@ use_slack   = true
 | `scheduler_job_name` | `scheduled-jobs-dispatcher` | Cloud Scheduler job name. |
 | `scheduler_cron_schedule` | `* * * * *` | Cron schedule for the scheduler job. |
 | `use_slack` | `true` | Whether to create the Slack signing secret container, its IAM binding, and the Cloud Run env binding. Set to `false` for non-Slack installs — `scripts/deploy_forum.sh` will auto-detect the absent secret and skip the Cloud Run binding. |
+| `slack_signing_secret_value` | `""` | The signing secret value to populate `slack-signing-secret` with. Required when `use_slack = true`. Sensitive — pass via `TF_VAR_slack_signing_secret_value` rather than storing in `terraform.tfvars` to avoid disk plaintext. The value lands in terraform state (private GCS bucket). `scripts/install.sh` collects this via prompt or migration-backup file and passes it through `TF_VAR` automatically. |
 
 ### 2. Authenticate with GCP
 
@@ -147,23 +148,21 @@ The outputs include:
 
 After `terraform apply` completes:
 
-### 1. Add Slack Signing Secret(s) — only if `use_slack = true`
+### 1. Slack Signing Secret — handled at apply time
 
-Terraform creates the secret *container* but not its value. Populate it before deploying The Forum:
+When `use_slack = true`, terraform creates both the secret *container* and its initial *version* in a single apply, populating the value from `var.slack_signing_secret_value`. `scripts/install.sh` collects this via prompt (or migration backup) and passes it through `TF_VAR_slack_signing_secret_value` for you.
+
+If you're running terraform manually:
 
 ```bash
-PROJECT_ID=$(terraform output -raw project_id)
-
 # Single Slack app:
-echo -n "YOUR_SLACK_SECRET" | gcloud secrets versions add slack-signing-secret \
-  --data-file=- \
-  --project=$PROJECT_ID
+TF_VAR_slack_signing_secret_value="YOUR_SLACK_SECRET" terraform apply
 
 # Multiple Slack apps (one per bot, comma-separated):
-# echo -n "secret1,secret2,secret3" | gcloud secrets versions add slack-signing-secret \
-#   --data-file=- \
-#   --project=$PROJECT_ID
+TF_VAR_slack_signing_secret_value="secret1,secret2,secret3" terraform apply
 ```
+
+To **rotate** later: re-apply with a new value, or run `gcloud secrets versions add slack-signing-secret --data-file=- --project=$PROJECT_ID` and Cloud Run will pick up the new version on its next revision.
 
 If you set `use_slack = false`, terraform won't create the secret and `scripts/deploy_forum.sh` will skip the Cloud Run binding automatically.
 

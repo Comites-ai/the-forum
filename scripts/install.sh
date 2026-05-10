@@ -59,12 +59,14 @@ GCP project. It will:
   5.  Ask which messaging platforms you'll use.
   6.  Generate terraform.tfvars and .env from your answers.
   7.  Create a GCS bucket for terraform remote state.
-  8.  Run terraform plan + apply (creates infra with a hello-world placeholder).
-  9.  Populate the Slack signing secret (from migration backup or prompt).
-  10. Restore Firestore data if migrating.
-  11. Run scripts/deploy_forum.sh (Cloud Build → real image → Cloud Run).
-  12. Verify the service responds on /health.
-  13. Print platform-specific webhook URLs for manual setup.
+  8.  Collect the Slack signing secret value (from migration backup or via prompt),
+      then run terraform plan + apply. The secret value is passed to terraform
+      via TF_VAR, so the Cloud Run service comes up with the binding already
+      satisfied.
+  9.  Restore Firestore data if migrating.
+  10. Run scripts/deploy_forum.sh (Cloud Build → real image → Cloud Run).
+  11. Verify the service responds on /health.
+  12. Print platform-specific webhook URLs for manual setup.
 
 Pre-requisites you must handle yourself:
   • A GCP project exists and has a billing account linked.
@@ -339,57 +341,76 @@ EOF
     hr
 }
 
+# Collect the Slack signing secret value before terraform apply.
+# Sets TF_VAR_slack_signing_secret_value for terraform to consume.
+# Cloud Run validates the bound secret has a version at creation time, so
+# the value must exist BEFORE terraform creates the Cloud Run service —
+# we pass it through terraform itself rather than populating after apply.
+collect_slack_secret_value() {
+    local backup="$MIGRATION_PATH/secrets/slack-signing-secret.value"
+    local secret_value=""
+
+    if [[ "$IS_MIGRATION" == "true" && -s "$backup" ]]; then
+        if prompt_yn "  Use slack-signing-secret value from migration backup ($backup)?" y; then
+            secret_value=$(cat "$backup")
+            ok "  Using value from migration backup."
+        fi
+    fi
+
+    if [[ -z "$secret_value" ]]; then
+        cat <<EOF
+
+  ${BOLD}How to retrieve the Slack signing secret:${NC}
+    1. Open https://api.slack.com/apps in a browser
+    2. Click your Slack app
+    3. Go to 'Basic Information' in the left sidebar
+    4. Scroll to 'App Credentials'
+    5. Click 'Show' next to 'Signing Secret' and copy the value
+
+  If multiple Slack apps route to The Forum, separate their secrets with
+  commas (e.g., 'secret1,secret2').
+
+EOF
+        read -rsp "  Slack signing secret(s): " secret_value
+        echo
+    fi
+
+    if [[ -z "$secret_value" ]]; then
+        err "  Empty secret. Slack support requires a non-empty value."
+        echo "  Either set use_slack=false in terraform.tfvars, or re-run with a real value."
+        exit 1
+    fi
+
+    export TF_VAR_slack_signing_secret_value="$secret_value"
+    ok "  Slack signing secret value collected (will be passed to terraform via TF_VAR)."
+}
+
 # --- Phase 6: terraform apply ---
 phase_6_apply() {
     say "Phase 6: terraform plan + apply"
+
+    if [[ "$USE_SLACK" == "true" ]]; then
+        say "Phase 6 needs the Slack signing secret value before terraform plan/apply."
+        collect_slack_secret_value
+        echo
+    fi
+
     (cd "$REPO_ROOT/terraform" && terraform plan)
     echo
     if ! prompt_yn "Apply this plan?" y; then
         echo "Aborted before apply."
+        unset TF_VAR_slack_signing_secret_value
         exit 0
     fi
     (cd "$REPO_ROOT/terraform" && terraform apply -auto-approve)
+    unset TF_VAR_slack_signing_secret_value
     ok "Terraform apply complete."
     hr
 }
 
-# --- Phase 6.5: Populate Slack signing secret ---
-phase_6_5_secret() {
-    say "Phase 6.5: Populate slack-signing-secret"
-    if [[ "$USE_SLACK" != "true" ]]; then
-        ok "Slack not selected — terraform did not create the secret. Skipping."
-        hr
-        return 0
-    fi
-
-    local backup="$MIGRATION_PATH/secrets/slack-signing-secret.value"
-    if [[ "$IS_MIGRATION" == "true" && -f "$backup" ]]; then
-        say "Restoring Slack signing secret from migration backup..."
-        gcloud secrets versions add slack-signing-secret \
-            --data-file="$backup" \
-            --project="$PROJECT_ID" >/dev/null
-        ok "Slack signing secret restored from backup."
-    else
-        echo "Enter Slack signing secret(s)."
-        echo "If you have multiple Slack apps, separate with commas."
-        echo "Find it at: api.slack.com/apps → Your App → Basic Information → Signing Secret"
-        read -rsp "Secret: " slack_secret
-        echo
-        if [[ -z "$slack_secret" ]]; then
-            err "Empty secret. Re-run install.sh and provide a value, or run:"
-            echo "  echo -n VALUE | gcloud secrets versions add slack-signing-secret --data-file=- --project=$PROJECT_ID"
-            exit 1
-        fi
-        printf "%s" "$slack_secret" | gcloud secrets versions add slack-signing-secret \
-            --data-file=- --project="$PROJECT_ID" >/dev/null
-        ok "Slack signing secret populated."
-    fi
-    hr
-}
-
-# --- Phase 6.6: Firestore data restore (migration only) ---
-phase_6_6_firestore() {
-    say "Phase 6.6: Firestore data restore"
+# --- Phase 6.5: Firestore data restore (migration only) ---
+phase_6_5_firestore() {
+    say "Phase 6.5: Firestore data restore"
     if [[ "$IS_MIGRATION" != "true" ]]; then
         ok "Not a migration — skipping Firestore restore."
         hr
@@ -517,8 +538,7 @@ main() {
     phase_5_5_config_files
     phase_5_6_state_backend
     phase_6_apply
-    phase_6_5_secret
-    phase_6_6_firestore
+    phase_6_5_firestore
     phase_7_deploy
     phase_7_5_verify
     phase_8_platforms
