@@ -1,0 +1,31 @@
+{
+  "chat": {
+    "messagePayload": {
+      "message": {
+        "name": "spaces/AAAA_SPACE_001/messages/MSG_002",
+        "sender": {
+          "name": "users/12345",
+          "displayName": "Jane Tester",
+          "email": "jane@example.com",
+          "type": "HUMAN"
+        },
+        "text": "see attached",
+        "space": {
+          "name": "spaces/AAAA_SPACE_001",
+          "type": "DM"
+        },
+        "attachments": [
+          {
+            "name": "spaces/AAAA_SPACE_001/messages/MSG_002/attachments/ATT_001",
+            "contentName": "diagram.png",
+            "contentType": "image/png",
+            "source": "UPLOADED_CONTENT",
+            "attachmentDataRef": {
+              "resourceName": "spaces/AAAA_SPACE_001/messages/MSG_002/attachments/ATT_001/data"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

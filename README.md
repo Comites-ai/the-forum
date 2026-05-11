@@ -255,6 +255,8 @@ uvicorn app.main:app --reload --port 8080
 
 ### 8. Test
 
+The automated test suite (`pytest`) covers the platform connectors, services, and API routes against in-memory fakes — see [CONTRIBUTING.md](CONTRIBUTING.md#running-tests). The commands below are for manual smoke-testing a running server.
+
 ```bash
 # Test health endpoint
 curl http://localhost:8080/health

@@ -1,0 +1,26 @@
+{
+  "token": "verification-token",
+  "team_id": "T0001",
+  "api_app_id": "A0001",
+  "event": {
+    "type": "message",
+    "channel_type": "im",
+    "user": "U_USER_001",
+    "text": "hi there",
+    "ts": "1234567890.000200",
+    "channel": "D_CHANNEL_001",
+    "event_ts": "1234567890.000200"
+  },
+  "type": "event_callback",
+  "event_id": "Ev0002",
+  "event_time": 1234567890,
+  "authorizations": [
+    {
+      "team_id": "T0001",
+      "user_id": "U_BOT_001",
+      "is_bot": true
+    }
+  ],
+  "is_ext_shared_channel": false,
+  "event_context": "EC0002"
+}

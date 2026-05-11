@@ -64,8 +64,8 @@ If your company would prefer to have a formal Corporate CLA in place, please con
 
 1. **Fork the repository** and create a new branch from `main`
 2. **Make your changes** following our code standards (below)
-3. **Test your changes** thoroughly
-4. **Submit a pull request** with a clear description of what you've done
+3. **Run `pytest`** and add tests for any new functionality (see [Running Tests](#running-tests))
+4. **Submit a pull request** with a clear description of what you've done — CI will run automatically
 5. **Sign the CLA** when prompted by CLA Assistant, and email cla@comites.ai with the supplemental information described above
 
 ### Pull Request Guidelines
@@ -73,7 +73,9 @@ If your company would prefer to have a formal Corporate CLA in place, please con
 - Keep PRs focused on a single change
 - Write clear commit messages
 - Update documentation if needed
-- Ensure that `scripts/install.sh`, `scripts/deploy_forum.sh`, and `scripts/uninstall.sh` still operate successfully against a clean GCP project.
+- Add or update tests in [tests/](tests/) for any new code paths — see the existing test files for patterns to copy
+- Make sure CI is green before requesting review (Python tests, shell lint, terraform lint all run automatically)
+- Ensure that `scripts/install.sh`, `scripts/deploy_forum.sh`, and `scripts/uninstall.sh` still operate successfully against a clean GCP project (maintainers will spot-check this manually for PRs that touch infrastructure).
 
 ## Development Setup
 
@@ -110,9 +112,40 @@ uvicorn app.main:app --reload
 
 ### Running Tests
 
+Install dev dependencies (includes `pytest`, `pytest-asyncio`, and `httpx`):
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+Then run the suite:
+
 ```bash
 pytest
 ```
+
+The tests use **in-memory fakes** for Firestore, Vertex AI, GCS, and the platform connectors — they don't touch real GCP or Slack. See [tests/fakes/](tests/fakes/) for the fakes and [tests/conftest.py](tests/conftest.py) for the shared fixtures (`fake_firestore`, `fake_vertex_ai`, `client`, `slack_signed_request`, etc.). When adding new tests, copy the patterns from existing ones in [tests/services/](tests/services/) and [tests/api/](tests/api/).
+
+### Continuous Integration
+
+Every pull request automatically runs three checks:
+
+| Check | What it does |
+|---|---|
+| **Python tests** | `pytest` against the suite in `tests/` |
+| **Shell lint** | `bash -n` syntax check + `shellcheck -S error` on `scripts/*.sh` |
+| **Terraform lint** | `terraform fmt -check -recursive terraform/` |
+
+Workflow lives at [.github/workflows/ci.yml](.github/workflows/ci.yml). You can run the same checks locally:
+
+```bash
+pytest                                    # python tests
+shellcheck -S error scripts/*.sh          # apt install shellcheck if needed
+bash -n scripts/*.sh                      # syntax check
+terraform fmt -check -recursive terraform/ # terraform formatting
+```
+
+Live infrastructure tests (running `install.sh` against a real GCP project) are not automated — maintainers run them manually for PRs that touch `scripts/install.sh`, `scripts/uninstall.sh`, or `terraform/`.
 
 ## Code Standards
 
