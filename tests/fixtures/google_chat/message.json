@@ -1,0 +1,21 @@
+{
+  "chat": {
+    "messagePayload": {
+      "message": {
+        "name": "spaces/AAAA_SPACE_001/messages/MSG_001",
+        "sender": {
+          "name": "users/12345",
+          "displayName": "Jane Tester",
+          "email": "jane@example.com",
+          "type": "HUMAN"
+        },
+        "text": "Hello agent",
+        "space": {
+          "name": "spaces/AAAA_SPACE_001",
+          "type": "DM"
+        },
+        "createTime": "2026-05-10T15:00:00Z"
+      }
+    }
+  }
+}

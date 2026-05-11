@@ -1,0 +1,36 @@
+{
+  "update_id": 123456790,
+  "message": {
+    "message_id": 43,
+    "from": {
+      "id": 987654321,
+      "is_bot": false,
+      "first_name": "John",
+      "username": "johndoe"
+    },
+    "chat": {
+      "id": 987654321,
+      "first_name": "John",
+      "username": "johndoe",
+      "type": "private"
+    },
+    "date": 1234567891,
+    "photo": [
+      {
+        "file_id": "AgACAgI_small",
+        "file_unique_id": "uniq_small",
+        "file_size": 1234,
+        "width": 90,
+        "height": 90
+      },
+      {
+        "file_id": "AgACAgI_large",
+        "file_unique_id": "uniq_large",
+        "file_size": 56789,
+        "width": 1280,
+        "height": 1280
+      }
+    ],
+    "caption": "look at this"
+  }
+}

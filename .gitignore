@@ -9,6 +9,7 @@
 !package.json
 !package-lock.json
 !tsconfig.json
+!tests/fixtures/**/*.json
 service-account*.json
 credentials*.json
 *-sa-key.json
