@@ -64,8 +64,8 @@ If your company would prefer to have a formal Corporate CLA in place, please con
 
 1. **Fork the repository** and create a new branch from `main`
 2. **Make your changes** following our code standards (below)
-3. **Test your changes** thoroughly
-4. **Submit a pull request** with a clear description of what you've done
+3. **Run `pytest`** and add tests for any new functionality (see [Running Tests](#running-tests))
+4. **Submit a pull request** with a clear description of what you've done — CI will run automatically
 5. **Sign the CLA** when prompted by CLA Assistant, and email cla@comites.ai with the supplemental information described above
 
 ### Pull Request Guidelines
@@ -73,7 +73,9 @@ If your company would prefer to have a formal Corporate CLA in place, please con
 - Keep PRs focused on a single change
 - Write clear commit messages
 - Update documentation if needed
-- Ensure that `scripts/install.sh`, `scripts/deploy_forum.sh`, and `scripts/uninstall.sh` still operate successfully against a clean GCP project.
+- Add or update tests in [tests/](tests/) for any new code paths — see the existing test files for patterns to copy
+- Make sure CI is green before requesting review (Python tests, shell lint, terraform lint all run automatically)
+- Ensure that `scripts/install.sh`, `scripts/deploy_forum.sh`, and `scripts/uninstall.sh` still operate successfully against a clean GCP project (maintainers will spot-check this manually for PRs that touch infrastructure).
 
 ## Development Setup
 

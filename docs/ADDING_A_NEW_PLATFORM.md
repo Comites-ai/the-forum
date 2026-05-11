@@ -532,6 +532,15 @@ if platform not in valid_platforms:
 
 ## Testing and Deployment
 
+### Automated Tests
+
+Add a `tests/connectors/test_<platform>_connector.py` file alongside the existing ones — see [tests/connectors/test_slack_connector.py](../tests/connectors/test_slack_connector.py) and [tests/connectors/test_telegram_connector.py](../tests/connectors/test_telegram_connector.py) for the pattern. At minimum, cover:
+
+- `verify_request` — valid signature/token accepted, invalid rejected, replay rejected if applicable.
+- `parse_event` — happy-path message and at least one attachment shape, asserted against a real-shaped JSON fixture in [tests/fixtures/<platform>/](../tests/fixtures/).
+
+Drop the JSON fixtures into `tests/fixtures/<platform>/` (a `.gitignore` allowlist already lets them through). Run `pytest tests/connectors/` to verify before opening the PR.
+
 ### Local Testing
 
 1. **Set up ngrok** for local webhook testing:
