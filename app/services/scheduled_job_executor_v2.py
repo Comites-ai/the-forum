@@ -3,7 +3,7 @@
 
 """Scheduled job execution service (v2 - multi-platform)."""
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Optional
 
 from app.config import get_settings
@@ -214,7 +214,7 @@ class ScheduledJobExecutorV2:
             # Google API rate limit - schedule a silent retry in 1 minute
             logger.warning(f"Rate limit hit for job {job_id}: {e}")
 
-            retry_at = datetime.utcnow() + timedelta(minutes=1)
+            retry_at = datetime.now(UTC) + timedelta(minutes=1)
             await self.firestore.update_scheduled_job(job_id, {
                 "retry_at": retry_at,
                 "retry_reason": "rate_limit_429",

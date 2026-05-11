@@ -3,7 +3,7 @@
 
 """Firestore service for agent and session management."""
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import List, Optional
 
 from google.cloud.firestore import AsyncClient, FieldFilter, ArrayUnion
@@ -13,6 +13,7 @@ from app.models.agent import Agent
 from app.models.session import Session
 from app.models.scheduled_job import ScheduledJob
 from app.models.user import User, PlatformIdentity
+from app.utils.datetime_helpers import to_aware_utc
 
 logger = logging.getLogger(__name__)
 
@@ -93,11 +94,10 @@ class FirestoreService:
             last_activity = data.get("last_activity_at")
             if last_activity:
                 # Handle both datetime objects and Firestore timestamps
-                if hasattr(last_activity, 'timestamp'):
-                    last_activity = datetime.fromtimestamp(last_activity.timestamp())
+                last_activity = to_aware_utc(last_activity)
 
                 expiry_time = last_activity + timedelta(minutes=settings.session_timeout_minutes)
-                if datetime.utcnow() > expiry_time:
+                if datetime.now(UTC) > expiry_time:
                     logger.info(
                         f"Session {session_key} expired (last activity: {last_activity}, "
                         f"timeout: {settings.session_timeout_minutes} minutes)"
@@ -133,7 +133,7 @@ class FirestoreService:
         """
         try:
             session_key = f"{slack_user_id}_{agent_id}"
-            now = datetime.utcnow()
+            now = datetime.now(UTC)
 
             session_data = {
                 "slack_user_id": slack_user_id,
@@ -168,7 +168,7 @@ class FirestoreService:
         try:
             await self.client.collection(self.sessions_collection).document(
                 session_id
-            ).update({"last_activity_at": datetime.utcnow()})
+            ).update({"last_activity_at": datetime.now(UTC)})
 
             logger.debug(f"Updated activity timestamp for session: {session_id}")
 
@@ -248,8 +248,8 @@ class FirestoreService:
             data = doc.to_dict()
             # Handle Firestore timestamps
             for field in ["last_execution_at", "execution_started_at", "created_at", "updated_at"]:
-                if field in data and data[field] and hasattr(data[field], "timestamp"):
-                    data[field] = datetime.fromtimestamp(data[field].timestamp())
+                if field in data:
+                    data[field] = to_aware_utc(data[field])
 
             job = ScheduledJob(**data, id=doc.id)
             logger.debug(f"Found scheduled job: {job.name} (id: {job.id})")
@@ -273,7 +273,7 @@ class FirestoreService:
             Exception: If creation fails
         """
         try:
-            now = datetime.utcnow()
+            now = datetime.now(UTC)
             job_data["created_at"] = now
             job_data["updated_at"] = now
 
@@ -303,7 +303,7 @@ class FirestoreService:
             Exception: If update fails
         """
         try:
-            updates["updated_at"] = datetime.utcnow()
+            updates["updated_at"] = datetime.now(UTC)
 
             await self.client.collection(self.scheduled_jobs_collection).document(job_id).update(updates)
 
@@ -364,8 +364,8 @@ class FirestoreService:
                 data = doc.to_dict()
                 # Handle Firestore timestamps
                 for field in ["last_execution_at", "execution_started_at", "created_at", "updated_at"]:
-                    if field in data and data[field] and hasattr(data[field], "timestamp"):
-                        data[field] = datetime.fromtimestamp(data[field].timestamp())
+                    if field in data:
+                        data[field] = to_aware_utc(data[field])
                 jobs.append(ScheduledJob(**data, id=doc.id))
 
             logger.info(f"Listed {len(jobs)} scheduled jobs")
@@ -413,11 +413,10 @@ class FirestoreService:
             execution_started_at = data.get("execution_started_at")
             if execution_started_at:
                 # Handle Firestore timestamp
-                if hasattr(execution_started_at, "timestamp"):
-                    execution_started_at = datetime.fromtimestamp(execution_started_at.timestamp())
+                execution_started_at = to_aware_utc(execution_started_at)
 
                 lock_expiry = execution_started_at + timedelta(seconds=lock_timeout_seconds)
-                if datetime.utcnow() < lock_expiry:
+                if datetime.now(UTC) < lock_expiry:
                     logger.info(f"Job {job_id} is already being executed, skipping")
                     return False
                 else:
@@ -430,7 +429,7 @@ class FirestoreService:
 
             # Acquire lock
             await doc_ref.update({
-                "execution_started_at": datetime.utcnow(),
+                "execution_started_at": datetime.now(UTC),
                 "last_execution_id": execution_id,
             })
 
@@ -458,8 +457,8 @@ class FirestoreService:
         try:
             updates = {
                 "execution_started_at": None,
-                "last_execution_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
+                "last_execution_at": datetime.now(UTC),
+                "updated_at": datetime.now(UTC),
             }
 
             if success:
@@ -496,7 +495,7 @@ class FirestoreService:
             Exception: If creation fails
         """
         try:
-            now = datetime.utcnow()
+            now = datetime.now(UTC)
             user_data = user.model_dump(exclude={"id"})
             user_data["created_at"] = now
             user_data["updated_at"] = now
@@ -537,14 +536,14 @@ class FirestoreService:
 
             # Handle Firestore timestamps
             for field in ["created_at", "updated_at"]:
-                if field in data and data[field] and hasattr(data[field], "timestamp"):
-                    data[field] = datetime.fromtimestamp(data[field].timestamp())
+                if field in data:
+                    data[field] = to_aware_utc(data[field])
 
             # Handle timestamp in identities
             if "identities" in data:
                 for identity in data["identities"]:
-                    if "linked_at" in identity and hasattr(identity["linked_at"], "timestamp"):
-                        identity["linked_at"] = datetime.fromtimestamp(identity["linked_at"].timestamp())
+                    if "linked_at" in identity:
+                        identity["linked_at"] = to_aware_utc(identity["linked_at"])
 
             user = User(**data, id=doc.id)
             logger.debug(f"Found user: {user.primary_name} (id: {user.id})")
@@ -594,14 +593,14 @@ class FirestoreService:
 
             # Handle Firestore timestamps
             for field in ["created_at", "updated_at"]:
-                if field in data and data[field] and hasattr(data[field], "timestamp"):
-                    data[field] = datetime.fromtimestamp(data[field].timestamp())
+                if field in data:
+                    data[field] = to_aware_utc(data[field])
 
             # Handle timestamp in identities
             if "identities" in data:
                 for identity in data["identities"]:
-                    if "linked_at" in identity and hasattr(identity["linked_at"], "timestamp"):
-                        identity["linked_at"] = datetime.fromtimestamp(identity["linked_at"].timestamp())
+                    if "linked_at" in identity:
+                        identity["linked_at"] = to_aware_utc(identity["linked_at"])
 
             user = User(**data, id=doc.id)
             logger.debug(f"Found user {user.id} for {platform}:{platform_user_id}")
@@ -640,14 +639,14 @@ class FirestoreService:
 
             # Handle Firestore timestamps
             for field in ["created_at", "updated_at"]:
-                if field in data and data[field] and hasattr(data[field], "timestamp"):
-                    data[field] = datetime.fromtimestamp(data[field].timestamp())
+                if field in data:
+                    data[field] = to_aware_utc(data[field])
 
             # Handle timestamp in identities
             if "identities" in data:
                 for identity in data["identities"]:
-                    if "linked_at" in identity and hasattr(identity["linked_at"], "timestamp"):
-                        identity["linked_at"] = datetime.fromtimestamp(identity["linked_at"].timestamp())
+                    if "linked_at" in identity:
+                        identity["linked_at"] = to_aware_utc(identity["linked_at"])
 
             user = User(**data, id=docs[0].id)
             logger.debug(f"Found user {user.id} for email: {email}")
@@ -702,12 +701,12 @@ class FirestoreService:
 
             # Handle Firestore timestamps (mirrors get_user_by_email)
             for field in ["created_at", "updated_at"]:
-                if field in data and data[field] and hasattr(data[field], "timestamp"):
-                    data[field] = datetime.fromtimestamp(data[field].timestamp())
+                if field in data:
+                    data[field] = to_aware_utc(data[field])
             if "identities" in data:
                 for identity in data["identities"]:
-                    if "linked_at" in identity and hasattr(identity["linked_at"], "timestamp"):
-                        identity["linked_at"] = datetime.fromtimestamp(identity["linked_at"].timestamp())
+                    if "linked_at" in identity:
+                        identity["linked_at"] = to_aware_utc(identity["linked_at"])
 
             user = User(**data, id=docs[0].id)
             logger.debug(f"Found user {user.id} for primary_name: {primary_name!r}")
@@ -736,7 +735,7 @@ class FirestoreService:
             # Use array union to add identity
             await doc_ref.update({
                 "identities": ArrayUnion([identity.model_dump()]),
-                "updated_at": datetime.utcnow()
+                "updated_at": datetime.now(UTC)
             })
 
             logger.info(f"Added {identity.platform} identity to user {user_id}")
@@ -778,11 +777,10 @@ class FirestoreService:
             last_activity = data.get("last_activity_at")
             if last_activity:
                 # Handle both datetime objects and Firestore timestamps
-                if hasattr(last_activity, 'timestamp'):
-                    last_activity = datetime.fromtimestamp(last_activity.timestamp())
+                last_activity = to_aware_utc(last_activity)
 
                 expiry_time = last_activity + timedelta(minutes=settings.session_timeout_minutes)
-                if datetime.utcnow() > expiry_time:
+                if datetime.now(UTC) > expiry_time:
                     logger.info(
                         f"Session {session_key} expired (last activity: {last_activity}, "
                         f"timeout: {settings.session_timeout_minutes} minutes)"
@@ -819,7 +817,7 @@ class FirestoreService:
         """
         try:
             session_key = f"{user_id}_{agent_id}"
-            now = datetime.utcnow()
+            now = datetime.now(UTC)
 
             session_data = {
                 "user_id": user_id,
@@ -893,7 +891,7 @@ class FirestoreService:
             ).update({
                 "platforms_used": ArrayUnion([platform]),
                 "last_active_platform": platform,
-                "last_activity_at": datetime.utcnow()
+                "last_activity_at": datetime.now(UTC)
             })
 
             logger.debug(f"Updated platforms for session: {session_id} (added {platform})")

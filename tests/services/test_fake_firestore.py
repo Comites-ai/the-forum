@@ -109,6 +109,20 @@ async def test_update_session_platforms_adds_to_set(fake_firestore):
     assert set(fetched.platforms_used) == {"slack", "google_chat"}
 
 
+async def test_session_expiry_comparison_does_not_raise(fake_firestore):
+    """
+    Regression guard for the utcnow→now(UTC) migration: the session
+    freshness check (`datetime.now(UTC) > expiry_time`) must not raise
+    TypeError, which it would if one side were naive and the other aware.
+    """
+    await fake_firestore.create_session_for_user(
+        user_id="user-1", agent_id="agent-1", vertex_ai_session_id="vs-1", platform="slack"
+    )
+    fetched = await fake_firestore.get_session_by_user("user-1", "agent-1")
+    assert fetched is not None
+    assert fetched.vertex_ai_session_id == "vs-1"
+
+
 # ---- Scheduled jobs ----
 
 

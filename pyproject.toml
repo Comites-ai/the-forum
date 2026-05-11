@@ -7,4 +7,9 @@ addopts = "-ra --strict-markers"
 filterwarnings = [
     "ignore::DeprecationWarning:google.*",
     "ignore::DeprecationWarning:pydantic.*",
+    # starlette 0.38 (pinned via fastapi==0.115.0) imports the deprecated
+    # `multipart` module instead of `python_multipart`. Fixed upstream in
+    # starlette >= 0.40; the proper resolution is to bump FastAPI, which
+    # is a separate PR because it drags starlette to 1.0.
+    "ignore:Please use `import python_multipart`:PendingDeprecationWarning",
 ]

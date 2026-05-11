@@ -5,7 +5,7 @@
 import asyncio
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Optional
 
 from google.cloud import storage
@@ -48,7 +48,7 @@ class GCSService:
         Raises:
             GcsUploadError: If the upload fails for any reason.
         """
-        timestamp = datetime.utcnow().strftime("%Y%m%d")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d")
         unique_id = uuid.uuid4().hex[:12]
         extension = self._get_extension(mime_type, original_filename)
         blob_name = f"{self.file_prefix}/{timestamp}/{unique_id}{extension}"
