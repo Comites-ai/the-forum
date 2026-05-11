@@ -110,9 +110,40 @@ uvicorn app.main:app --reload
 
 ### Running Tests
 
+Install dev dependencies (includes `pytest`, `pytest-asyncio`, and `httpx`):
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+Then run the suite:
+
 ```bash
 pytest
 ```
+
+The tests use **in-memory fakes** for Firestore, Vertex AI, GCS, and the platform connectors — they don't touch real GCP or Slack. See [tests/fakes/](tests/fakes/) for the fakes and [tests/conftest.py](tests/conftest.py) for the shared fixtures (`fake_firestore`, `fake_vertex_ai`, `client`, `slack_signed_request`, etc.). When adding new tests, copy the patterns from existing ones in [tests/services/](tests/services/) and [tests/api/](tests/api/).
+
+### Continuous Integration
+
+Every pull request automatically runs three checks:
+
+| Check | What it does |
+|---|---|
+| **Python tests** | `pytest` against the suite in `tests/` |
+| **Shell lint** | `bash -n` syntax check + `shellcheck -S error` on `scripts/*.sh` |
+| **Terraform lint** | `terraform fmt -check -recursive terraform/` |
+
+Workflow lives at [.github/workflows/ci.yml](.github/workflows/ci.yml). You can run the same checks locally:
+
+```bash
+pytest                                    # python tests
+shellcheck -S error scripts/*.sh          # apt install shellcheck if needed
+bash -n scripts/*.sh                      # syntax check
+terraform fmt -check -recursive terraform/ # terraform formatting
+```
+
+Live infrastructure tests (running `install.sh` against a real GCP project) are not automated — maintainers run them manually for PRs that touch `scripts/install.sh`, `scripts/uninstall.sh`, or `terraform/`.
 
 ## Code Standards
 

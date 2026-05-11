@@ -21,6 +21,7 @@ Fixes #
 - [ ] I have tested these changes locally
 - [ ] I have added tests that prove my fix/feature works
 - [ ] All existing tests pass
+- [ ] CI checks (Python tests, shell lint, terraform lint) are green on this PR
 
 ## Checklist
 
