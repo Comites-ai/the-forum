@@ -63,25 +63,14 @@
 
     <div class="cron-tabs" role="tablist">
       <button type="button" class="cron-tab" data-mode="custom" role="tab">Custom</button>
-      <button type="button" class="cron-tab" data-mode="minutes" role="tab">Minutes</button>
       <button type="button" class="cron-tab" data-mode="hourly" role="tab">Hourly</button>
       <button type="button" class="cron-tab" data-mode="daily" role="tab">Daily</button>
-      <button type="button" class="cron-tab" data-mode="weekly" role="tab">Weekly</button>
+      <button type="button" class="cron-tab" data-mode="weekly" role="tab">Once per Day</button>
       <button type="button" class="cron-tab" data-mode="monthly" role="tab">Monthly</button>
     </div>
 
     <div class="cron-panel" data-mode="custom" role="tabpanel">
       <p class="cron-custom-note">Type the cron expression below in the Cron expression box. The other tabs auto-fill it for you.</p>
-    </div>
-
-    <div class="cron-panel" data-mode="minutes" role="tabpanel" hidden>
-      <div class="cron-row">
-        <span>Every</span>
-        <select id="cron-minutes-n" class="cron-narrow">
-          {% for n in [1,2,3,5,10,15,20,30] %}<option value="{{ n }}" {% if n == 15 %}selected{% endif %}>{{ n }}</option>{% endfor %}
-        </select>
-        <span>minutes</span>
-      </div>
     </div>
 
     <div class="cron-panel" data-mode="hourly" role="tabpanel" hidden>
@@ -95,12 +84,7 @@
     </div>
 
     <div class="cron-panel" data-mode="daily" role="tabpanel" hidden>
-      <div class="cron-row">
-        <span class="cron-q">Which days?</span>
-        <label class="cron-radio"><input type="radio" name="cron-daily-days" value="every" checked> Every day</label>
-        <label class="cron-radio"><input type="radio" name="cron-daily-days" value="weekdays"> Weekdays (Mon–Fri)</label>
-        <label class="cron-radio"><input type="radio" name="cron-daily-days" value="weekends"> Weekends (Sat–Sun)</label>
-      </div>
+      <p class="cron-custom-note">Runs every day. For specific days, use the "Once per Day" tab.</p>
       <div class="cron-row">
         <span class="cron-q">At what time?</span>
         <span class="cron-clock">
@@ -116,15 +100,17 @@
     </div>
 
     <div class="cron-panel" data-mode="weekly" role="tabpanel" hidden>
-      <div class="cron-row">
+      <div class="cron-row cron-row-stacked">
         <span class="cron-q">On which days?</span>
-        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="1"> Mon</label>
-        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="2"> Tue</label>
-        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="3"> Wed</label>
-        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="4"> Thu</label>
-        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="5"> Fri</label>
-        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="6"> Sat</label>
-        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="0"> Sun</label>
+        <div class="cron-days-list">
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="1"> Monday</label>
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="2"> Tuesday</label>
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="3"> Wednesday</label>
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="4"> Thursday</label>
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="5"> Friday</label>
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="6"> Saturday</label>
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="0"> Sunday</label>
+        </div>
       </div>
       <div class="cron-row">
         <span class="cron-q">At what time?</span>
@@ -172,8 +158,11 @@
 
   <label class="field">
     <span class="field-label">Timezone</span>
-    <input type="text" name="timezone" required value="{{ form.timezone or (job.timezone if job else 'UTC') }}" placeholder="UTC">
-    <span class="field-hint">IANA timezone, e.g. <code>America/New_York</code>.</span>
+    {% set saved_tz = form.timezone or (job.timezone if job else '') %}
+    <select name="timezone" required data-detect-tz="{{ '0' if job or form.timezone else '1' }}">
+      {% for tz in timezones %}<option value="{{ tz }}" {% if saved_tz == tz %}selected{% endif %}>{{ tz }}</option>{% endfor %}
+    </select>
+    <span class="field-hint">IANA timezone. Defaults to your browser's local timezone on new jobs.</span>
   </label>
 
   <label class="field field-checkbox">
@@ -217,18 +206,10 @@
     if (currentMode === 'custom') return; // leave the text input untouched
 
     let expr = '';
-    if (currentMode === 'minutes') {
-      const n = intVal('cron-minutes-n') || 1;
-      expr = '*/' + n + ' * * * *';
-    } else if (currentMode === 'hourly') {
+    if (currentMode === 'hourly') {
       expr = intVal('cron-hourly-min') + ' * * * *';
     } else if (currentMode === 'daily') {
-      const days = document.querySelector('input[name="cron-daily-days"]:checked');
-      const dayPart =
-        !days || days.value === 'every' ? '*' :
-        days.value === 'weekdays' ? '1-5' :
-        '0,6';
-      expr = intVal('cron-daily-min') + ' ' + intVal('cron-daily-hour') + ' * * ' + dayPart;
+      expr = intVal('cron-daily-min') + ' ' + intVal('cron-daily-hour') + ' * * *';
     } else if (currentMode === 'weekly') {
       const days = Array.prototype.slice.call(
         document.querySelectorAll('.cron-weekly-day:checked')
@@ -264,6 +245,20 @@
   // overwritten until the operator picks a tab); on edit the existing
   // expression stays visible and intact.
   setMode('custom');
+})();
+
+// On a brand-new job form, default the timezone dropdown to the browser's
+// resolved IANA zone. data-detect-tz="1" is set server-side when there is
+// no existing timezone value to preserve.
+(function () {
+  const sel = document.querySelector('select[name="timezone"]');
+  if (!sel || sel.dataset.detectTz !== '1') return;
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (tz && Array.prototype.some.call(sel.options, function (o) { return o.value === tz; })) {
+      sel.value = tz;
+    }
+  } catch (e) { /* ignore */ }
 })();
 </script>
 {% endblock %}

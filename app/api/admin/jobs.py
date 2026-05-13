@@ -13,7 +13,7 @@ from app.core.dependencies import (
     get_scheduled_job_service,
     require_admin_user,
 )
-from app.api.admin._common import PLATFORMS, PLATFORM_LABELS, get_templates
+from app.api.admin._common import PLATFORMS, PLATFORM_LABELS, TIMEZONES, get_templates
 from app.schemas.scheduled_job import ScheduledJobCreate, ScheduledJobUpdate
 from app.services.firestore_service import FirestoreService
 from app.services.scheduled_job_service import ScheduledJobService
@@ -80,6 +80,7 @@ async def new_job_form(
             "users": users,
             "platforms": list(PLATFORMS),
             "platform_labels": PLATFORM_LABELS,
+            "timezones": TIMEZONES,
         },
     )
 
@@ -155,6 +156,7 @@ async def edit_job_form(
             "users": users,
             "platforms": list(PLATFORMS),
             "platform_labels": PLATFORM_LABELS,
+            "timezones": TIMEZONES,
         },
     )
 

@@ -474,6 +474,11 @@ body.login-page {
   gap: 0.5rem 0.75rem;
   margin: 0.5rem 0;
 }
+.cron-row.cron-row-stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
 .cron-row > span {
   color: var(--slate);
   font-size: 0.92rem;
@@ -484,6 +489,16 @@ body.login-page {
   color: var(--ink);
   font-weight: 600;
   font-size: 0.92rem;
+}
+.cron-days-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  margin-left: 1.5rem;
+  line-height: 1.25;
+}
+.cron-days-list .cron-check {
+  padding: 0.1rem 0.45rem;
 }
 .cron-radio, .cron-check {
   display: inline-flex;
