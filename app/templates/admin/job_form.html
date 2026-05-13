@@ -59,53 +59,100 @@
 
   <fieldset class="field cron-builder" id="cron-builder">
     <legend class="field-label">Schedule builder</legend>
-    <span class="field-hint">Pick how often the job runs, or switch to Custom to write a raw cron expression.</span>
+    <p class="field-hint cron-intro">Pick a frequency tab, fill in the fields, and the cron expression below updates. Switch to Custom to type one directly.</p>
 
-    <label class="cron-row">
-      <span>Frequency</span>
-      <select id="cron-mode">
-        <option value="custom">Custom (type below)</option>
-        <option value="minutes">Every N minutes</option>
-        <option value="hourly">Hourly</option>
-        <option value="daily">Daily</option>
-        <option value="weekly">Weekly</option>
-        <option value="monthly">Monthly</option>
-      </select>
-    </label>
+    <div class="cron-tabs" role="tablist">
+      <button type="button" class="cron-tab" data-mode="custom" role="tab">Custom</button>
+      <button type="button" class="cron-tab" data-mode="minutes" role="tab">Minutes</button>
+      <button type="button" class="cron-tab" data-mode="hourly" role="tab">Hourly</button>
+      <button type="button" class="cron-tab" data-mode="daily" role="tab">Daily</button>
+      <button type="button" class="cron-tab" data-mode="weekly" role="tab">Weekly</button>
+      <button type="button" class="cron-tab" data-mode="monthly" role="tab">Monthly</button>
+    </div>
 
-    <div class="cron-mode-fields cron-row" data-mode="minutes" hidden>
-      <span>Every</span>
-      <input type="number" id="cron-minutes" min="1" max="59" value="15" class="cron-narrow">
-      <span>minutes</span>
+    <div class="cron-panel" data-mode="custom" role="tabpanel">
+      <p class="cron-custom-note">Type the cron expression below in the Cron expression box. The other tabs auto-fill it for you.</p>
     </div>
-    <div class="cron-mode-fields cron-row" data-mode="hourly" hidden>
-      <span>At minute</span>
-      <input type="number" id="cron-hourly-min" min="0" max="59" value="0" class="cron-narrow">
-      <span>of every hour</span>
+
+    <div class="cron-panel" data-mode="minutes" role="tabpanel" hidden>
+      <div class="cron-row">
+        <span>Every</span>
+        <select id="cron-minutes-n" class="cron-narrow">
+          {% for n in [1,2,3,5,10,15,20,30] %}<option value="{{ n }}" {% if n == 15 %}selected{% endif %}>{{ n }}</option>{% endfor %}
+        </select>
+        <span>minutes</span>
+      </div>
     </div>
-    <div class="cron-mode-fields cron-row" data-mode="daily" hidden>
-      <span>At</span>
-      <input type="time" id="cron-daily-time" value="09:00" class="cron-time">
-      <span>every day</span>
+
+    <div class="cron-panel" data-mode="hourly" role="tabpanel" hidden>
+      <div class="cron-row">
+        <span>At minute</span>
+        <select id="cron-hourly-min" class="cron-narrow">
+          {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
+        </select>
+        <span>of every hour</span>
+      </div>
     </div>
-    <div class="cron-mode-fields cron-row cron-weekly" data-mode="weekly" hidden>
-      <span>At</span>
-      <input type="time" id="cron-weekly-time" value="09:00" class="cron-time">
-      <span>on</span>
-      <label><input type="checkbox" class="cron-weekly-day" value="1"> Mon</label>
-      <label><input type="checkbox" class="cron-weekly-day" value="2"> Tue</label>
-      <label><input type="checkbox" class="cron-weekly-day" value="3"> Wed</label>
-      <label><input type="checkbox" class="cron-weekly-day" value="4"> Thu</label>
-      <label><input type="checkbox" class="cron-weekly-day" value="5"> Fri</label>
-      <label><input type="checkbox" class="cron-weekly-day" value="6"> Sat</label>
-      <label><input type="checkbox" class="cron-weekly-day" value="0"> Sun</label>
+
+    <div class="cron-panel" data-mode="daily" role="tabpanel" hidden>
+      <div class="cron-row">
+        <span class="cron-q">Which days?</span>
+        <label class="cron-radio"><input type="radio" name="cron-daily-days" value="every" checked> Every day</label>
+        <label class="cron-radio"><input type="radio" name="cron-daily-days" value="weekdays"> Weekdays (Mon–Fri)</label>
+        <label class="cron-radio"><input type="radio" name="cron-daily-days" value="weekends"> Weekends (Sat–Sun)</label>
+      </div>
+      <div class="cron-row">
+        <span class="cron-q">At what time?</span>
+        <select id="cron-daily-hour" class="cron-narrow" aria-label="Hour">
+          {% for h in range(24) %}<option value="{{ h }}" {% if h == 9 %}selected{% endif %}>{{ "%02d"|format(h) }}</option>{% endfor %}
+        </select>
+        <span>:</span>
+        <select id="cron-daily-min" class="cron-narrow" aria-label="Minute">
+          {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
+        </select>
+      </div>
     </div>
-    <div class="cron-mode-fields cron-row" data-mode="monthly" hidden>
-      <span>At</span>
-      <input type="time" id="cron-monthly-time" value="09:00" class="cron-time">
-      <span>on day</span>
-      <input type="number" id="cron-monthly-day" min="1" max="31" value="1" class="cron-narrow">
-      <span>of every month</span>
+
+    <div class="cron-panel" data-mode="weekly" role="tabpanel" hidden>
+      <div class="cron-row">
+        <span class="cron-q">On which days?</span>
+        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="1"> Mon</label>
+        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="2"> Tue</label>
+        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="3"> Wed</label>
+        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="4"> Thu</label>
+        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="5"> Fri</label>
+        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="6"> Sat</label>
+        <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="0"> Sun</label>
+      </div>
+      <div class="cron-row">
+        <span class="cron-q">At what time?</span>
+        <select id="cron-weekly-hour" class="cron-narrow" aria-label="Hour">
+          {% for h in range(24) %}<option value="{{ h }}" {% if h == 9 %}selected{% endif %}>{{ "%02d"|format(h) }}</option>{% endfor %}
+        </select>
+        <span>:</span>
+        <select id="cron-weekly-min" class="cron-narrow" aria-label="Minute">
+          {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="cron-panel" data-mode="monthly" role="tabpanel" hidden>
+      <div class="cron-row">
+        <span class="cron-q">On which day of the month?</span>
+        <select id="cron-monthly-day" class="cron-narrow" aria-label="Day of month">
+          {% for d in range(1, 32) %}<option value="{{ d }}" {% if d == 1 %}selected{% endif %}>{{ d }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="cron-row">
+        <span class="cron-q">At what time?</span>
+        <select id="cron-monthly-hour" class="cron-narrow" aria-label="Hour">
+          {% for h in range(24) %}<option value="{{ h }}" {% if h == 9 %}selected{% endif %}>{{ "%02d"|format(h) }}</option>{% endfor %}
+        </select>
+        <span>:</span>
+        <select id="cron-monthly-min" class="cron-narrow" aria-label="Minute">
+          {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
+        </select>
+      </div>
     </div>
   </fieldset>
 
@@ -138,68 +185,79 @@
 {% block scripts %}
 <script>
 (function () {
-  const modeSelect = document.getElementById('cron-mode');
   const cronInput = document.getElementById('cron-input');
-  const allModes = document.querySelectorAll('.cron-mode-fields');
+  const tabs = document.querySelectorAll('.cron-tab');
+  const panels = document.querySelectorAll('.cron-panel');
+  let currentMode = 'custom';
 
-  function showMode(mode) {
-    allModes.forEach(function (el) {
-      el.hidden = el.dataset.mode !== mode;
+  function setMode(mode) {
+    currentMode = mode;
+    tabs.forEach(function (t) {
+      const on = t.dataset.mode === mode;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    panels.forEach(function (p) {
+      p.hidden = p.dataset.mode !== mode;
     });
   }
 
+  function intVal(id) {
+    const el = document.getElementById(id);
+    return el ? (parseInt(el.value, 10) || 0) : 0;
+  }
+
   function buildCron() {
-    const mode = modeSelect.value;
-    if (mode === 'custom') return; // leave the text input untouched
+    if (currentMode === 'custom') return; // leave the text input untouched
 
     let expr = '';
-    if (mode === 'minutes') {
-      const n = parseInt(document.getElementById('cron-minutes').value, 10) || 1;
+    if (currentMode === 'minutes') {
+      const n = intVal('cron-minutes-n') || 1;
       expr = '*/' + n + ' * * * *';
-    } else if (mode === 'hourly') {
-      const m = parseInt(document.getElementById('cron-hourly-min').value, 10) || 0;
-      expr = m + ' * * * *';
-    } else if (mode === 'daily') {
-      const t = (document.getElementById('cron-daily-time').value || '09:00').split(':');
-      expr = parseInt(t[1], 10) + ' ' + parseInt(t[0], 10) + ' * * *';
-    } else if (mode === 'weekly') {
-      const t = (document.getElementById('cron-weekly-time').value || '09:00').split(':');
+    } else if (currentMode === 'hourly') {
+      expr = intVal('cron-hourly-min') + ' * * * *';
+    } else if (currentMode === 'daily') {
+      const days = document.querySelector('input[name="cron-daily-days"]:checked');
+      const dayPart =
+        !days || days.value === 'every' ? '*' :
+        days.value === 'weekdays' ? '1-5' :
+        '0,6';
+      expr = intVal('cron-daily-min') + ' ' + intVal('cron-daily-hour') + ' * * ' + dayPart;
+    } else if (currentMode === 'weekly') {
       const days = Array.prototype.slice.call(
         document.querySelectorAll('.cron-weekly-day:checked')
       ).map(function (c) { return c.value; });
       const dayPart = days.length ? days.join(',') : '*';
-      expr = parseInt(t[1], 10) + ' ' + parseInt(t[0], 10) + ' * * ' + dayPart;
-    } else if (mode === 'monthly') {
-      const t = (document.getElementById('cron-monthly-time').value || '09:00').split(':');
-      const day = parseInt(document.getElementById('cron-monthly-day').value, 10) || 1;
-      expr = parseInt(t[1], 10) + ' ' + parseInt(t[0], 10) + ' ' + day + ' * *';
+      expr = intVal('cron-weekly-min') + ' ' + intVal('cron-weekly-hour') + ' * * ' + dayPart;
+    } else if (currentMode === 'monthly') {
+      const day = intVal('cron-monthly-day') || 1;
+      expr = intVal('cron-monthly-min') + ' ' + intVal('cron-monthly-hour') + ' ' + day + ' * *';
     }
     cronInput.value = expr;
   }
 
-  modeSelect.addEventListener('change', function () {
-    showMode(modeSelect.value);
-    buildCron();
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      setMode(tab.dataset.mode);
+      buildCron();
+    });
   });
+
   document.querySelectorAll('#cron-builder input, #cron-builder select').forEach(function (el) {
-    if (el === modeSelect) return;
     el.addEventListener('input', buildCron);
     el.addEventListener('change', buildCron);
   });
 
-  // If the operator types directly into the cron field, flip mode to Custom
-  // so the builder doesn't clobber what they wrote on the next interaction.
+  // If the operator types directly into the cron field, flip to Custom so
+  // the builder doesn't clobber what they wrote on the next interaction.
   cronInput.addEventListener('input', function () {
-    if (modeSelect.value !== 'custom') {
-      modeSelect.value = 'custom';
-      showMode('custom');
-    }
+    if (currentMode !== 'custom') setMode('custom');
   });
 
-  // Always boot in Custom mode: on create the field is blank (so nothing
-  // gets overwritten until the operator picks a frequency); on edit the
-  // existing expression stays visible and intact.
-  showMode(modeSelect.value);
+  // Always boot in Custom: on create the field is blank (so nothing gets
+  // overwritten until the operator picks a tab); on edit the existing
+  // expression stays visible and intact.
+  setMode('custom');
 })();
 </script>
 {% endblock %}

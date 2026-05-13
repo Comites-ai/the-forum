@@ -414,7 +414,7 @@ body.login-page {
 .cron-builder {
   border: 1px solid var(--gold-dim);
   border-radius: var(--radius);
-  padding: 0.85rem 1rem 0.5rem;
+  padding: 0.85rem 1rem 0.85rem;
   margin-bottom: 1.1rem;
   background: var(--travertine);
 }
@@ -422,38 +422,93 @@ body.login-page {
   padding: 0 0.4rem;
   margin-bottom: 0.1rem;
 }
+.cron-intro {
+  margin: 0 0 0.75rem;
+}
+
+.cron-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 1px solid var(--gold-dim);
+  margin-bottom: 0.85rem;
+}
+.cron-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  padding: 0.45rem 0.95rem;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--slate);
+  cursor: pointer;
+  border-top-left-radius: var(--radius);
+  border-top-right-radius: var(--radius);
+  position: relative;
+  top: 1px;
+}
+.cron-tab:hover { color: var(--oxblood); background: rgba(176, 141, 87, 0.08); }
+.cron-tab.active {
+  background: var(--marble);
+  border-color: var(--gold-dim);
+  border-bottom: 1px solid var(--marble);
+  color: var(--oxblood);
+  font-weight: 600;
+}
+
+.cron-panel {
+  padding: 0.25rem 0.1rem 0.1rem;
+}
+.cron-custom-note {
+  margin: 0;
+  color: var(--slate);
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
 .cron-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 0.6rem 0;
+  gap: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
 }
 .cron-row > span {
   color: var(--slate);
   font-size: 0.92rem;
 }
-.cron-row label {
+.cron-row .cron-q {
+  display: inline-block;
+  min-width: 11em;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.cron-radio, .cron-check {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  font-size: 0.9rem;
+  gap: 0.3rem;
+  font-size: 0.92rem;
   color: var(--ink);
-  margin-right: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+}
+.cron-radio:has(input:checked),
+.cron-check:has(input:checked) {
+  background: rgba(176, 141, 87, 0.15);
+  border-color: var(--gold-dim);
 }
 .cron-row select,
-.cron-row input[type="time"],
 .cron-narrow {
   padding: 0.35rem 0.5rem;
   border: 1px solid var(--gold);
   border-radius: var(--radius);
   background: #fff;
   font: inherit;
-  width: auto;
 }
-.cron-narrow { width: 5.5em; }
-.cron-time { width: 8em; }
-.cron-weekly { row-gap: 0.35rem; }
+.cron-narrow { width: auto; min-width: 4.2em; }
 
 /* ---------- Status ---------- */
 
