@@ -510,6 +510,32 @@ body.login-page {
 }
 .cron-narrow { width: auto; min-width: 4.2em; }
 
+/* Hour : minute selectors styled like a digital clock — tight gap, narrow
+   selects sized just to fit a two-digit value plus the native dropdown
+   chevron. */
+.cron-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+.cron-clock-sep {
+  font-weight: 700;
+  color: var(--ink);
+  font-size: 1rem;
+  padding: 0 0.05rem;
+}
+.cron-time-part {
+  padding: 0.35rem 0.25rem 0.35rem 0.4rem;
+  border: 1px solid var(--gold);
+  border-radius: var(--radius);
+  background: #fff;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  width: 3.5em;
+  text-align: center;
+  text-align-last: center;
+}
+
 /* ---------- Status ---------- */
 
 .status-on  { color: var(--success-ink); font-weight: 600; }

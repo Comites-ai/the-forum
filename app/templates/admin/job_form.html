@@ -103,13 +103,15 @@
       </div>
       <div class="cron-row">
         <span class="cron-q">At what time?</span>
-        <select id="cron-daily-hour" class="cron-narrow" aria-label="Hour">
-          {% for h in range(24) %}<option value="{{ h }}" {% if h == 9 %}selected{% endif %}>{{ "%02d"|format(h) }}</option>{% endfor %}
-        </select>
-        <span>:</span>
-        <select id="cron-daily-min" class="cron-narrow" aria-label="Minute">
-          {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
-        </select>
+        <span class="cron-clock">
+          <select id="cron-daily-hour" class="cron-time-part" aria-label="Hour">
+            {% for h in range(24) %}<option value="{{ h }}" {% if h == 9 %}selected{% endif %}>{{ "%02d"|format(h) }}</option>{% endfor %}
+          </select>
+          <span class="cron-clock-sep">:</span>
+          <select id="cron-daily-min" class="cron-time-part" aria-label="Minute">
+            {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
+          </select>
+        </span>
       </div>
     </div>
 
@@ -126,13 +128,15 @@
       </div>
       <div class="cron-row">
         <span class="cron-q">At what time?</span>
-        <select id="cron-weekly-hour" class="cron-narrow" aria-label="Hour">
-          {% for h in range(24) %}<option value="{{ h }}" {% if h == 9 %}selected{% endif %}>{{ "%02d"|format(h) }}</option>{% endfor %}
-        </select>
-        <span>:</span>
-        <select id="cron-weekly-min" class="cron-narrow" aria-label="Minute">
-          {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
-        </select>
+        <span class="cron-clock">
+          <select id="cron-weekly-hour" class="cron-time-part" aria-label="Hour">
+            {% for h in range(24) %}<option value="{{ h }}" {% if h == 9 %}selected{% endif %}>{{ "%02d"|format(h) }}</option>{% endfor %}
+          </select>
+          <span class="cron-clock-sep">:</span>
+          <select id="cron-weekly-min" class="cron-time-part" aria-label="Minute">
+            {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
+          </select>
+        </span>
       </div>
     </div>
 
@@ -145,13 +149,15 @@
       </div>
       <div class="cron-row">
         <span class="cron-q">At what time?</span>
-        <select id="cron-monthly-hour" class="cron-narrow" aria-label="Hour">
-          {% for h in range(24) %}<option value="{{ h }}" {% if h == 9 %}selected{% endif %}>{{ "%02d"|format(h) }}</option>{% endfor %}
-        </select>
-        <span>:</span>
-        <select id="cron-monthly-min" class="cron-narrow" aria-label="Minute">
-          {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
-        </select>
+        <span class="cron-clock">
+          <select id="cron-monthly-hour" class="cron-time-part" aria-label="Hour">
+            {% for h in range(24) %}<option value="{{ h }}" {% if h == 9 %}selected{% endif %}>{{ "%02d"|format(h) }}</option>{% endfor %}
+          </select>
+          <span class="cron-clock-sep">:</span>
+          <select id="cron-monthly-min" class="cron-time-part" aria-label="Minute">
+            {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
+          </select>
+        </span>
       </div>
     </div>
   </fieldset>
