@@ -7,7 +7,7 @@ Mirrors the public async API of FirestoreService with dict-backed storage.
 Designed to behave like Firestore *enough* that service-layer code is none
 the wiser, not to be a faithful Firestore emulator.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import List, Optional
 import uuid
 
@@ -79,7 +79,7 @@ class FakeFirestoreService:
         self, slack_user_id: str, agent_id: str, vertex_ai_session_id: str
     ) -> Session:
         session_key = f"{slack_user_id}_{agent_id}"
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         data = {
             "user_id": slack_user_id,
             "agent_id": agent_id,
@@ -92,7 +92,7 @@ class FakeFirestoreService:
 
     async def update_session_activity(self, session_id: str) -> None:
         if session_id in self.sessions:
-            self.sessions[session_id]["last_activity_at"] = datetime.utcnow()
+            self.sessions[session_id]["last_activity_at"] = datetime.now(UTC)
 
     async def get_session_by_user(self, user_id: str, agent_id: str) -> Optional[Session]:
         session_key = f"{user_id}_{agent_id}"
@@ -102,7 +102,7 @@ class FakeFirestoreService:
         self, user_id: str, agent_id: str, vertex_ai_session_id: str, platform: str
     ) -> Session:
         session_key = f"{user_id}_{agent_id}"
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         data = {
             "user_id": user_id,
             "agent_id": agent_id,
@@ -122,7 +122,7 @@ class FakeFirestoreService:
         if platform not in platforms:
             platforms.append(platform)
         self.sessions[session_id]["last_active_platform"] = platform
-        self.sessions[session_id]["last_activity_at"] = datetime.utcnow()
+        self.sessions[session_id]["last_activity_at"] = datetime.now(UTC)
 
     def _read_session_if_fresh(self, session_key: str) -> Optional[Session]:
         data = self.sessions.get(session_key)
@@ -131,7 +131,7 @@ class FakeFirestoreService:
         last_activity = data.get("last_activity_at")
         if last_activity:
             expiry = last_activity + timedelta(minutes=SESSION_TIMEOUT_MINUTES)
-            if datetime.utcnow() > expiry:
+            if datetime.now(UTC) > expiry:
                 del self.sessions[session_key]
                 return None
         return Session(**data, id=session_key)
@@ -146,7 +146,7 @@ class FakeFirestoreService:
 
     async def create_scheduled_job(self, job_data: dict) -> ScheduledJob:
         job_id = f"job-{uuid.uuid4().hex[:8]}"
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         data = dict(job_data)
         data["created_at"] = now
         data["updated_at"] = now
@@ -159,7 +159,7 @@ class FakeFirestoreService:
         if job_id not in self.scheduled_jobs:
             return None
         self.scheduled_jobs[job_id].update(updates)
-        self.scheduled_jobs[job_id]["updated_at"] = datetime.utcnow()
+        self.scheduled_jobs[job_id]["updated_at"] = datetime.now(UTC)
         return await self.get_scheduled_job(job_id)
 
     async def delete_scheduled_job(self, job_id: str) -> None:
@@ -193,11 +193,11 @@ class FakeFirestoreService:
         existing_lock = data.get("execution_started_at")
         if existing_lock:
             lock_expiry = existing_lock + timedelta(seconds=lock_timeout_seconds)
-            if datetime.utcnow() < lock_expiry:
+            if datetime.now(UTC) < lock_expiry:
                 return False
         if data.get("last_execution_id") == execution_id:
             return False
-        data["execution_started_at"] = datetime.utcnow()
+        data["execution_started_at"] = datetime.now(UTC)
         data["last_execution_id"] = execution_id
         return True
 
@@ -208,8 +208,8 @@ class FakeFirestoreService:
         if not data:
             return
         data["execution_started_at"] = None
-        data["last_execution_at"] = datetime.utcnow()
-        data["updated_at"] = datetime.utcnow()
+        data["last_execution_at"] = datetime.now(UTC)
+        data["updated_at"] = datetime.now(UTC)
         if success:
             data["consecutive_failures"] = 0
             data["last_error"] = None
@@ -223,7 +223,7 @@ class FakeFirestoreService:
         user_id = f"user-{uuid.uuid4().hex[:8]}"
         data = user.model_dump(exclude={"id"})
         data["identities"] = [identity.model_dump() for identity in user.identities]
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         data["created_at"] = now
         data["updated_at"] = now
         self.users[user_id] = data
@@ -267,4 +267,4 @@ class FakeFirestoreService:
             return
         identities = data.setdefault("identities", [])
         identities.append(identity.model_dump())
-        data["updated_at"] = datetime.utcnow()
+        data["updated_at"] = datetime.now(UTC)

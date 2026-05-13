@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """User identity model for multi-platform support."""
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Optional
 from pydantic import BaseModel, Field
 
@@ -16,7 +16,7 @@ class PlatformIdentity(BaseModel):
     platform: str = Field(..., description="Platform name (slack, google_chat)")
     platform_user_id: str = Field(..., description="Platform-specific user ID")
     linked_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When this identity was linked"
     )
     display_name: Optional[str] = Field(
@@ -52,11 +52,11 @@ class User(BaseModel):
         description="Email address for auto-linking (especially for Google Chat)"
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When this user was created"
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="Last update timestamp"
     )
 

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """Scheduled job configuration model."""
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Optional
 from pydantic import BaseModel, Field, model_validator
 
@@ -58,7 +58,7 @@ class ScheduledJob(BaseModel):
         default=None, description="Reason for scheduling a retry (e.g., 'rate_limit_429')"
     )
 
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Creation timestamp")
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Last update timestamp")
 
     model_config = {"frozen": False}  # Mutable for updates
