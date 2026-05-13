@@ -51,8 +51,9 @@
   </tbody>
 </table>
 <p class="muted small">
-  "Last used" is derived from the most recent 10 sessions per agent.
-  Rarely-used platforms outside that window show as &mdash;.
+  "Last used" is the most recent message processed per platform in the
+  last {{ last_used_window_days }} days, read from Cloud Logging.
+  Platforms with no activity in that window show as &mdash;.
 </p>
 {% endif %}
 {% endblock %}

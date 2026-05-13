@@ -42,6 +42,28 @@
   </footer>
   {% endif %}
 
+  <script>
+    // Format every <time datetime="..."> to the operator's local timezone.
+    // Server-side templates render an ISO-8601 UTC string in the datetime
+    // attribute; here we replace the visible text with a locale-aware
+    // representation so admins see times in their own clock.
+    (function () {
+      var fmt;
+      try {
+        fmt = new Intl.DateTimeFormat(undefined, {
+          year: 'numeric', month: 'short', day: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+          timeZoneName: 'short'
+        });
+      } catch (e) { return; }
+      document.querySelectorAll('time[datetime]').forEach(function (el) {
+        var d = new Date(el.getAttribute('datetime'));
+        if (isNaN(d.getTime())) return;
+        el.textContent = fmt.format(d);
+      });
+    })();
+  </script>
+
   {% block scripts %}{% endblock %}
 </body>
 </html>

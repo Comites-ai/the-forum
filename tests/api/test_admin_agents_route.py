@@ -45,18 +45,24 @@ def test_agents_list_shows_seeded_agent(admin_client, fake_firestore):
     assert "agent-1" in body
 
 
-def test_agents_list_shows_per_platform_last_used(admin_client, fake_firestore):
+def test_agents_list_shows_per_platform_last_used(
+    admin_client, fake_firestore, fake_admin_logging
+):
     _seed_agent(fake_firestore)
     now = datetime.now(UTC)
-    _add_session(fake_firestore, "agent-1", "slack", now - timedelta(hours=2))
-    _add_session(fake_firestore, "agent-1", "telegram", now - timedelta(minutes=30))
+    fake_admin_logging.last_used["agent-1"] = {
+        "slack": now - timedelta(hours=2),
+        "telegram": now - timedelta(minutes=30),
+    }
     _login(admin_client)
     response = admin_client.get("/admin/agents")
     body = response.text
-    # Both platforms appear with a timestamp; not the "—" placeholder.
-    assert "Slack" in body
-    assert "Telegram" in body
-    assert body.count("—") <= 1  # Only the google_chat column shows the dash.
+    # Both platforms appear with a timestamp; the iso strings render in
+    # the <time datetime="..."> attribute even before JS reformats them.
+    assert (now - timedelta(hours=2)).isoformat() in body
+    assert (now - timedelta(minutes=30)).isoformat() in body
+    # google_chat has no data → its cell shows the em-dash placeholder.
+    assert "—" in body
 
 
 def test_agent_detail_shows_recent_sessions_and_console_link(

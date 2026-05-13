@@ -311,8 +311,19 @@ class MessageProcessorV2:
                 text=response_text
             )
 
+            # Structured fields here power the admin UI's per-platform
+            # "last used" cells, which read these jsonPayload fields from
+            # Cloud Logging. Keep the field names stable.
             logger.info(
-                f"Successfully processed message for user {user.id} on {event.platform}"
+                f"Successfully processed message for user {user.id} on {event.platform}",
+                extra={
+                    "json_fields": {
+                        "event": "message_processed",
+                        "agent_id": agent_id,
+                        "platform": event.platform,
+                        "user_id": user.id,
+                    }
+                },
             )
 
         except ResourceExhaustedError as e:
