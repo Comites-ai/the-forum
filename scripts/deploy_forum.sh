@@ -173,8 +173,23 @@ fi
 
 echo ""
 echo "=== Deployment complete ==="
-echo "Service URL:"
-gcloud run services describe "$SERVICE_NAME" \
+FINAL_URL=$(gcloud run services describe "$SERVICE_NAME" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
-    --format="value(status.url)" 2>/dev/null || echo "  (could not retrieve — check Cloud Console)"
+    --format="value(status.url)" 2>/dev/null || true)
+
+if [[ -n "$FINAL_URL" ]]; then
+    echo "Service URL: $FINAL_URL"
+
+    # When the admin UI is provisioned, surface the bookmarkable admin URL
+    # so the operator doesn't have to remember the /admin/ suffix.
+    if gcloud secrets describe oauth-client-id --project="$PROJECT_ID" &>/dev/null; then
+        echo ""
+        echo "┌──────────────────────────────────────────────────────────────"
+        echo "│ Admin UI: $FINAL_URL/admin/"
+        echo "│ Bookmark this URL — it's how you'll reach the operator console."
+        echo "└──────────────────────────────────────────────────────────────"
+    fi
+else
+    echo "  Service URL: (could not retrieve — check Cloud Console)"
+fi
