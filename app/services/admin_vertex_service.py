@@ -80,10 +80,14 @@ class AdminVertexService:
             return None
 
         if response.status_code != 200:
+            # Collapse newlines so the full body survives a single-line
+            # textPayload in Cloud Logging (otherwise the JSON pretty-print
+            # gets truncated at the first newline).
+            body = " ".join(response.text.split())[:500]
             logger.warning(
                 "Vertex AI get reasoning engine returned %s: %s",
                 response.status_code,
-                response.text[:300],
+                body,
             )
             return None
 

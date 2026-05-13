@@ -65,10 +65,11 @@ class AdminAuthService:
             return False
 
         if response.status_code != 200:
+            body = " ".join(response.text.split())[:500]
             logger.warning(
                 "Cloud Resource Manager getIamPolicy returned %s: %s",
                 response.status_code,
-                response.text[:300],
+                body,
             )
             return False
 

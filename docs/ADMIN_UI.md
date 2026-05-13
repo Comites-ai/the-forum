@@ -37,6 +37,14 @@ production, SameSite=Lax) and expires in roughly an hour. The same token is
 used to call Cloud Logging and Vertex AI on agent detail pages, so log and
 engine reads run with **your** permissions, not the service account's.
 
+OAuth scope is `cloud-platform` (read+write). The narrower
+`cloud-platform.read-only` is sufficient for Cloud Resource Manager and
+Cloud Logging but is **not accepted by the Vertex AI API**, which is why
+we request the full scope. The admin UI only makes GET requests against
+these APIs — no writes — but since the signed-in operator is by definition
+project owner (we IAM-check before establishing the session), this scope
+grants nothing they don't already have through the Console.
+
 ## Setup
 
 ### 1. Create an OAuth 2.0 Client ID

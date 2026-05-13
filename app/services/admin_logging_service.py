@@ -33,11 +33,20 @@ class AdminLoggingService:
     def _build_filter(service_name: str, agent_id: str) -> str:
         agent_id_escaped = agent_id.replace('"', '\\"')
         service_name_escaped = service_name.replace('"', '\\"')
+        # The agent-id match is OR'd across three log shapes:
+        #   - jsonPayload.agent_id="..."   future-looking: when the app
+        #     explicitly attaches agent_id as a structured field.
+        #   - jsonPayload.message:"..."    when running with google-cloud-
+        #     logging StructuredHandler, the formatted message text lives
+        #     here. This is the common case in production.
+        #   - textPayload:"..."            legacy: pre-structured-logging
+        #     entries land here as raw stdout text.
         return (
             f'resource.type="cloud_run_revision" '
             f'AND resource.labels.service_name="{service_name_escaped}" '
             f'AND severity>=ERROR '
             f'AND (jsonPayload.agent_id="{agent_id_escaped}" '
+            f'OR jsonPayload.message:"{agent_id_escaped}" '
             f'OR textPayload:"{agent_id_escaped}")'
         )
 
@@ -76,10 +85,11 @@ class AdminLoggingService:
             return None
 
         if response.status_code != 200:
+            body = " ".join(response.text.split())[:500]
             logger.warning(
                 "Cloud Logging entries:list returned %s: %s",
                 response.status_code,
-                response.text[:300],
+                body,
             )
             return None
 

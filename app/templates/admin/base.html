@@ -33,9 +33,14 @@
     {% block content %}{% endblock %}
   </main>
 
+  {% if show_chrome|default(true) %}
   <footer class="site-footer">
-    <span>The Forum by Comites.ai &middot; <a href="/source">AGPL-3.0</a></span>
+    <span>The Forum by
+      <a href="https://comites.ai" target="_blank" rel="noopener">Comites.ai</a>
+      &middot; AGPL-3.0
+    </span>
   </footer>
+  {% endif %}
 
   {% block scripts %}{% endblock %}
 </body>

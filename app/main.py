@@ -3,6 +3,7 @@
 
 """FastAPI application entry point."""
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -26,11 +27,35 @@ from app.services.admin_auth_service import AdminAuthService
 from app.services.admin_logging_service import AdminLoggingService
 from app.services.admin_vertex_service import AdminVertexService
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+# Configure logging.
+#
+# On Cloud Run we route Python's stdlib logging through google-cloud-logging
+# so logger.info()/.warning()/.error() produce Cloud Logging entries with
+# proper severity levels (not flattened to default/INFO via stdout capture).
+# Without this, the admin UI's "Last Error" card finds nothing because no
+# entries match severity>=ERROR even when the app is logging at ERROR.
+#
+# K_SERVICE is set automatically by Cloud Run; locally we fall back to a
+# text stdout formatter so dev and tests don't need API credentials.
+def _configure_logging():
+    if os.environ.get("K_SERVICE"):
+        try:
+            from google.cloud import logging as cloud_logging
+            cloud_logging.Client().setup_logging(log_level=logging.INFO)
+            return
+        except Exception as e:  # pragma: no cover - boot-time best effort
+            logging.basicConfig(level=logging.INFO)
+            logging.getLogger(__name__).warning(
+                f"Cloud Logging setup failed, falling back to stdout: {e}"
+            )
+            return
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
+
+_configure_logging()
 logger = logging.getLogger(__name__)
 
 

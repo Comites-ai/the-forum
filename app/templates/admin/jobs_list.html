@@ -24,6 +24,7 @@
       <th scope="col">Agent</th>
       <th scope="col">Platform</th>
       <th scope="col">Cron</th>
+      <th scope="col">Schedule</th>
       <th scope="col">Timezone</th>
       <th scope="col">Enabled</th>
       <th scope="col">Last execution</th>
@@ -44,6 +45,7 @@
       </td>
       <td><span class="chip chip-{{ job.output_platform }}">{{ platform_labels.get(job.output_platform, job.output_platform) }}</span></td>
       <td><code class="small">{{ job.schedule }}</code></td>
+      <td>{{ schedule_descriptions[job.id] }}</td>
       <td>{{ job.timezone }}</td>
       <td>{% if job.enabled %}<span class="status-on">on</span>{% else %}<span class="status-off">off</span>{% endif %}</td>
       <td>

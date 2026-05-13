@@ -409,6 +409,52 @@ body.login-page {
   gap: 0.75rem;
 }
 
+/* ---------- Cron builder ---------- */
+
+.cron-builder {
+  border: 1px solid var(--gold-dim);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem 0.5rem;
+  margin-bottom: 1.1rem;
+  background: var(--travertine);
+}
+.cron-builder legend.field-label {
+  padding: 0 0.4rem;
+  margin-bottom: 0.1rem;
+}
+.cron-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.6rem 0;
+}
+.cron-row > span {
+  color: var(--slate);
+  font-size: 0.92rem;
+}
+.cron-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+  color: var(--ink);
+  margin-right: 0.3rem;
+}
+.cron-row select,
+.cron-row input[type="time"],
+.cron-narrow {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--gold);
+  border-radius: var(--radius);
+  background: #fff;
+  font: inherit;
+  width: auto;
+}
+.cron-narrow { width: 5.5em; }
+.cron-time { width: 8em; }
+.cron-weekly { row-gap: 0.35rem; }
+
 /* ---------- Status ---------- */
 
 .status-on  { color: var(--success-ink); font-weight: 600; }

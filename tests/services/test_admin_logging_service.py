@@ -14,6 +14,7 @@ def test_filter_includes_service_name_severity_and_agent_id():
     assert 'resource.labels.service_name="the-forum"' in f
     assert "severity>=ERROR" in f
     assert 'jsonPayload.agent_id="agent-42"' in f
+    assert 'jsonPayload.message:"agent-42"' in f
     assert 'textPayload:"agent-42"' in f
 
 

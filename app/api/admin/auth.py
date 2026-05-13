@@ -33,9 +33,16 @@ def build_oauth_client() -> OAuth:
         client_secret=settings.oauth_client_secret,
         server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
         client_kwargs={
+            # We need cloud-platform (not cloud-platform.read-only) because
+            # the Vertex AI API does not accept the read-only variant for
+            # reading reasoningEngines. Cloud Resource Manager and Cloud
+            # Logging accept either; the broader scope covers all three.
+            # The user is by definition project owner (we check IAM before
+            # establishing the session), so this scope only re-grants what
+            # they already have through the console.
             "scope": (
                 "openid email profile "
-                "https://www.googleapis.com/auth/cloud-platform.read-only"
+                "https://www.googleapis.com/auth/cloud-platform"
             )
         },
     )

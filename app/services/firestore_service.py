@@ -716,6 +716,38 @@ class FirestoreService:
             logger.error(f"Error fetching user by primary_name {primary_name!r}: {e}")
             return None
 
+    async def list_users(self) -> List[User]:
+        """
+        List all users in the users collection.
+
+        Used by the admin UI to populate the user dropdown on the scheduled
+        job form. Volume is small (one row per real human across all
+        platforms), so an unfiltered scan is fine.
+        """
+        try:
+            users: List[User] = []
+            async for doc in self.client.collection(self.users_collection).stream():
+                data = doc.to_dict()
+                for field in ("created_at", "updated_at"):
+                    if field in data:
+                        data[field] = to_aware_utc(data[field])
+                if "identities" in data:
+                    for identity in data["identities"]:
+                        if "linked_at" in identity:
+                            identity["linked_at"] = to_aware_utc(identity["linked_at"])
+                try:
+                    users.append(User(**data, id=doc.id))
+                except Exception as validation_error:
+                    logger.warning(
+                        f"Skipping user {doc.id} due to validation error: {validation_error}"
+                    )
+                    continue
+            users.sort(key=lambda u: u.primary_name.lower())
+            return users
+        except Exception as e:
+            logger.error(f"Error listing users: {e}")
+            return []
+
     async def add_user_identity(
         self, user_id: str, identity: PlatformIdentity
     ) -> None:

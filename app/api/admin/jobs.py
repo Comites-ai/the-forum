@@ -4,6 +4,7 @@
 """Admin UI scheduled jobs CRUD (rendered HTML, form-encoded POSTs)."""
 import logging
 
+from cron_descriptor import get_description
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
@@ -26,6 +27,18 @@ def _agent_name_map(agents) -> dict[str, str]:
     return {a.id: a.display_name for a in agents}
 
 
+def _describe_cron(expression: str) -> str:
+    """English description of a cron expression, or the raw expression on failure.
+
+    cron-descriptor handles malformed input by raising; we fall back to the
+    raw string so the column never goes blank.
+    """
+    try:
+        return get_description(expression)
+    except Exception:
+        return expression
+
+
 @router.get("")
 async def list_jobs(
     request: Request,
@@ -35,12 +48,14 @@ async def list_jobs(
 ):
     jobs = await service.list_jobs()
     agents = await firestore.list_agents()
+    schedule_descriptions = {job.id: _describe_cron(job.schedule) for job in jobs}
     return get_templates(request).TemplateResponse(
         request,
         "admin/jobs_list.html",
         {
             "jobs": jobs,
             "agent_names": _agent_name_map(agents),
+            "schedule_descriptions": schedule_descriptions,
             "platform_labels": PLATFORM_LABELS,
         },
     )
@@ -53,6 +68,7 @@ async def new_job_form(
     firestore: FirestoreService = Depends(get_firestore_service),
 ):
     agents = await firestore.list_agents()
+    users = await firestore.list_users()
     return get_templates(request).TemplateResponse(
         request,
         "admin/job_form.html",
@@ -61,6 +77,7 @@ async def new_job_form(
             "form": {},
             "error": None,
             "agents": agents,
+            "users": users,
             "platforms": list(PLATFORMS),
             "platform_labels": PLATFORM_LABELS,
         },
@@ -96,6 +113,7 @@ async def create_job(
         await service.create_job(payload)
     except ValueError as e:
         agents = await firestore.list_agents()
+        users = await firestore.list_users()
         return get_templates(request).TemplateResponse(
             request,
             "admin/job_form.html",
@@ -104,6 +122,7 @@ async def create_job(
                 "form": payload.model_dump(),
                 "error": str(e),
                 "agents": agents,
+                "users": users,
                 "platforms": list(PLATFORMS),
                 "platform_labels": PLATFORM_LABELS,
             },
@@ -124,6 +143,7 @@ async def edit_job_form(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     agents = await firestore.list_agents()
+    users = await firestore.list_users()
     return get_templates(request).TemplateResponse(
         request,
         "admin/job_form.html",
@@ -132,6 +152,7 @@ async def edit_job_form(
             "form": {},
             "error": None,
             "agents": agents,
+            "users": users,
             "platforms": list(PLATFORMS),
             "platform_labels": PLATFORM_LABELS,
         },
@@ -169,6 +190,7 @@ async def update_job(
     except ValueError as e:
         job = await service.get_job(job_id)
         agents = await firestore.list_agents()
+        users = await firestore.list_users()
         return get_templates(request).TemplateResponse(
             request,
             "admin/job_form.html",
@@ -184,6 +206,7 @@ async def update_job(
                 },
                 "error": str(e),
                 "agents": agents,
+                "users": users,
                 "platforms": list(PLATFORMS),
                 "platform_labels": PLATFORM_LABELS,
             },

@@ -34,9 +34,18 @@
   </label>
 
   <label class="field">
-    <span class="field-label">User ID</span>
-    <input type="text" name="user_id" required {% if job %}readonly{% endif %} value="{{ form.user_id or (job.user_id if job else '') }}">
-    <span class="field-hint">Unified user ID from the <code>users</code> collection.</span>
+    <span class="field-label">User</span>
+    {% set selected_user_id = form.user_id or (job.user_id if job else '') %}
+    <select name="user_id" required {% if job %}disabled{% endif %}>
+      <option value="">— Select user —</option>
+      {% for user in users %}
+      <option value="{{ user.id }}" {% if selected_user_id == user.id %}selected{% endif %}>
+        {{ user.primary_name }}{% if user.email %} ({{ user.email }}){% endif %}
+      </option>
+      {% endfor %}
+    </select>
+    {% if job %}<input type="hidden" name="user_id" value="{{ job.user_id }}">{% endif %}
+    <span class="field-hint">The unified user whose identity is used to deliver responses.</span>
   </label>
 
   <label class="field">
@@ -48,10 +57,64 @@
     </select>
   </label>
 
+  <fieldset class="field cron-builder" id="cron-builder">
+    <legend class="field-label">Schedule builder</legend>
+    <span class="field-hint">Pick how often the job runs, or switch to Custom to write a raw cron expression.</span>
+
+    <label class="cron-row">
+      <span>Frequency</span>
+      <select id="cron-mode">
+        <option value="custom">Custom (type below)</option>
+        <option value="minutes">Every N minutes</option>
+        <option value="hourly">Hourly</option>
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+      </select>
+    </label>
+
+    <div class="cron-mode-fields cron-row" data-mode="minutes" hidden>
+      <span>Every</span>
+      <input type="number" id="cron-minutes" min="1" max="59" value="15" class="cron-narrow">
+      <span>minutes</span>
+    </div>
+    <div class="cron-mode-fields cron-row" data-mode="hourly" hidden>
+      <span>At minute</span>
+      <input type="number" id="cron-hourly-min" min="0" max="59" value="0" class="cron-narrow">
+      <span>of every hour</span>
+    </div>
+    <div class="cron-mode-fields cron-row" data-mode="daily" hidden>
+      <span>At</span>
+      <input type="time" id="cron-daily-time" value="09:00" class="cron-time">
+      <span>every day</span>
+    </div>
+    <div class="cron-mode-fields cron-row cron-weekly" data-mode="weekly" hidden>
+      <span>At</span>
+      <input type="time" id="cron-weekly-time" value="09:00" class="cron-time">
+      <span>on</span>
+      <label><input type="checkbox" class="cron-weekly-day" value="1"> Mon</label>
+      <label><input type="checkbox" class="cron-weekly-day" value="2"> Tue</label>
+      <label><input type="checkbox" class="cron-weekly-day" value="3"> Wed</label>
+      <label><input type="checkbox" class="cron-weekly-day" value="4"> Thu</label>
+      <label><input type="checkbox" class="cron-weekly-day" value="5"> Fri</label>
+      <label><input type="checkbox" class="cron-weekly-day" value="6"> Sat</label>
+      <label><input type="checkbox" class="cron-weekly-day" value="0"> Sun</label>
+    </div>
+    <div class="cron-mode-fields cron-row" data-mode="monthly" hidden>
+      <span>At</span>
+      <input type="time" id="cron-monthly-time" value="09:00" class="cron-time">
+      <span>on day</span>
+      <input type="number" id="cron-monthly-day" min="1" max="31" value="1" class="cron-narrow">
+      <span>of every month</span>
+    </div>
+  </fieldset>
+
   <label class="field">
-    <span class="field-label">Cron schedule</span>
-    <input type="text" name="schedule" required value="{{ form.schedule or (job.schedule if job else '') }}" placeholder="0 9 * * 1-5">
-    <span class="field-hint">5-field cron expression. Example: <code>0 9 * * 1-5</code> = weekdays at 09:00.</span>
+    <span class="field-label">Cron expression</span>
+    <input type="text" name="schedule" id="cron-input" required value="{{ form.schedule or (job.schedule if job else '') }}" placeholder="0 9 * * 1-5">
+    <span class="field-hint">
+      5-field cron expression. The builder above writes here; you can also type it directly (Frequency switches to Custom).
+    </span>
   </label>
 
   <label class="field">
@@ -70,4 +133,73 @@
     <a href="/admin/jobs" class="btn">Cancel</a>
   </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const modeSelect = document.getElementById('cron-mode');
+  const cronInput = document.getElementById('cron-input');
+  const allModes = document.querySelectorAll('.cron-mode-fields');
+
+  function showMode(mode) {
+    allModes.forEach(function (el) {
+      el.hidden = el.dataset.mode !== mode;
+    });
+  }
+
+  function buildCron() {
+    const mode = modeSelect.value;
+    if (mode === 'custom') return; // leave the text input untouched
+
+    let expr = '';
+    if (mode === 'minutes') {
+      const n = parseInt(document.getElementById('cron-minutes').value, 10) || 1;
+      expr = '*/' + n + ' * * * *';
+    } else if (mode === 'hourly') {
+      const m = parseInt(document.getElementById('cron-hourly-min').value, 10) || 0;
+      expr = m + ' * * * *';
+    } else if (mode === 'daily') {
+      const t = (document.getElementById('cron-daily-time').value || '09:00').split(':');
+      expr = parseInt(t[1], 10) + ' ' + parseInt(t[0], 10) + ' * * *';
+    } else if (mode === 'weekly') {
+      const t = (document.getElementById('cron-weekly-time').value || '09:00').split(':');
+      const days = Array.prototype.slice.call(
+        document.querySelectorAll('.cron-weekly-day:checked')
+      ).map(function (c) { return c.value; });
+      const dayPart = days.length ? days.join(',') : '*';
+      expr = parseInt(t[1], 10) + ' ' + parseInt(t[0], 10) + ' * * ' + dayPart;
+    } else if (mode === 'monthly') {
+      const t = (document.getElementById('cron-monthly-time').value || '09:00').split(':');
+      const day = parseInt(document.getElementById('cron-monthly-day').value, 10) || 1;
+      expr = parseInt(t[1], 10) + ' ' + parseInt(t[0], 10) + ' ' + day + ' * *';
+    }
+    cronInput.value = expr;
+  }
+
+  modeSelect.addEventListener('change', function () {
+    showMode(modeSelect.value);
+    buildCron();
+  });
+  document.querySelectorAll('#cron-builder input, #cron-builder select').forEach(function (el) {
+    if (el === modeSelect) return;
+    el.addEventListener('input', buildCron);
+    el.addEventListener('change', buildCron);
+  });
+
+  // If the operator types directly into the cron field, flip mode to Custom
+  // so the builder doesn't clobber what they wrote on the next interaction.
+  cronInput.addEventListener('input', function () {
+    if (modeSelect.value !== 'custom') {
+      modeSelect.value = 'custom';
+      showMode('custom');
+    }
+  });
+
+  // Always boot in Custom mode: on create the field is blank (so nothing
+  // gets overwritten until the operator picks a frequency); on edit the
+  // existing expression stays visible and intact.
+  showMode(modeSelect.value);
+})();
+</script>
 {% endblock %}

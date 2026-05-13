@@ -280,6 +280,16 @@ class FakeFirestoreService:
                 return User(**data, id=uid)
         return None
 
+    async def list_users(self) -> List[User]:
+        users = []
+        for uid, data in self.users.items():
+            try:
+                users.append(User(**data, id=uid))
+            except Exception:
+                continue
+        users.sort(key=lambda u: u.primary_name.lower())
+        return users
+
     async def add_user_identity(
         self, user_id: str, identity: PlatformIdentity
     ) -> None:
