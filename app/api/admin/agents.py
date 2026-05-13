@@ -39,11 +39,21 @@ async def list_agents(
         recent = await firestore.list_recent_sessions_for_agent(agent.id, limit=10)
         last_used: dict[str, object] = {}
         for s in recent:
-            if not s.last_active_platform or not s.last_activity_at:
+            if not s.last_activity_at:
                 continue
-            existing = last_used.get(s.last_active_platform)
-            if existing is None or s.last_activity_at > existing:
-                last_used[s.last_active_platform] = s.last_activity_at
+            # Prefer last_active_platform when set; fall back to every
+            # platform in platforms_used for older sessions that predate
+            # the last_active_platform field being tracked.
+            if s.last_active_platform:
+                candidates = [s.last_active_platform]
+            elif s.platforms_used:
+                candidates = list(s.platforms_used)
+            else:
+                continue
+            for platform in candidates:
+                existing = last_used.get(platform)
+                if existing is None or s.last_activity_at > existing:
+                    last_used[platform] = s.last_activity_at
         configured = [p.platform for p in (agent.platforms or []) if p.enabled]
         rows.append({
             "agent": agent,

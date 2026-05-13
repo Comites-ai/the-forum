@@ -877,13 +877,18 @@ class FirestoreService:
 
         Used by the admin UI to populate the per-agent recent-sessions table
         and to derive per-platform "last used" timestamps.
+
+        The agent_id filter is applied server-side; ordering by
+        last_activity_at would need a composite Firestore index
+        (agent_id + last_activity_at), so instead we fetch all matching
+        sessions and sort/slice in memory. Per-agent session volume is
+        bounded (a session is a (user, agent) pair and gets expired on
+        access after session_timeout_minutes of inactivity), so this stays
+        cheap for any realistic deployment.
         """
         try:
-            query = (
-                self.client.collection(self.sessions_collection)
-                .where(filter=FieldFilter("agent_id", "==", agent_id))
-                .order_by("last_activity_at", direction="DESCENDING")
-                .limit(limit)
+            query = self.client.collection(self.sessions_collection).where(
+                filter=FieldFilter("agent_id", "==", agent_id)
             )
 
             sessions: List[Session] = []
@@ -899,7 +904,11 @@ class FirestoreService:
                         f"Skipping session {doc.id} due to validation error: {validation_error}"
                     )
                     continue
-            return sessions
+            sessions.sort(
+                key=lambda s: s.last_activity_at,
+                reverse=True,
+            )
+            return sessions[:limit]
 
         except Exception as e:
             logger.error(f"Error listing recent sessions for agent {agent_id}: {e}")
