@@ -1,0 +1,73 @@
+{% extends "admin/base.html" %}
+{% block title %}{% if job %}Edit{% else %}Create{% endif %} job &middot; The Forum{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <a class="back-link" href="/admin/jobs">&larr; Scheduled jobs</a>
+  <h1>{% if job %}Edit "{{ job.name }}"{% else %}Create scheduled job{% endif %}</h1>
+</header>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<form class="form-card" method="post" action="{% if job %}/admin/jobs/{{ job.id }}/edit{% else %}/admin/jobs/new{% endif %}">
+  <label class="field">
+    <span class="field-label">Name</span>
+    <input type="text" name="name" required maxlength="100" value="{{ form.name or (job.name if job else '') }}">
+  </label>
+
+  <label class="field">
+    <span class="field-label">Prompt</span>
+    <textarea name="prompt" rows="4" required maxlength="4000">{{ form.prompt or (job.prompt if job else '') }}</textarea>
+  </label>
+
+  <label class="field">
+    <span class="field-label">Agent</span>
+    <select name="agent_id" required {% if job %}disabled{% endif %}>
+      <option value="">— Select agent —</option>
+      {% for agent in agents %}
+      <option value="{{ agent.id }}" {% if (form.agent_id or (job.agent_id if job else '')) == agent.id %}selected{% endif %}>{{ agent.display_name }}</option>
+      {% endfor %}
+    </select>
+    {% if job %}<input type="hidden" name="agent_id" value="{{ job.agent_id }}">{% endif %}
+  </label>
+
+  <label class="field">
+    <span class="field-label">User ID</span>
+    <input type="text" name="user_id" required {% if job %}readonly{% endif %} value="{{ form.user_id or (job.user_id if job else '') }}">
+    <span class="field-hint">Unified user ID from the <code>users</code> collection.</span>
+  </label>
+
+  <label class="field">
+    <span class="field-label">Output platform</span>
+    <select name="output_platform" required>
+      {% for platform in platforms %}
+      <option value="{{ platform }}" {% if (form.output_platform or (job.output_platform if job else 'slack')) == platform %}selected{% endif %}>{{ platform_labels[platform] }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="field">
+    <span class="field-label">Cron schedule</span>
+    <input type="text" name="schedule" required value="{{ form.schedule or (job.schedule if job else '') }}" placeholder="0 9 * * 1-5">
+    <span class="field-hint">5-field cron expression. Example: <code>0 9 * * 1-5</code> = weekdays at 09:00.</span>
+  </label>
+
+  <label class="field">
+    <span class="field-label">Timezone</span>
+    <input type="text" name="timezone" required value="{{ form.timezone or (job.timezone if job else 'UTC') }}" placeholder="UTC">
+    <span class="field-hint">IANA timezone, e.g. <code>America/New_York</code>.</span>
+  </label>
+
+  <label class="field field-checkbox">
+    <input type="checkbox" name="enabled" value="1" {% if (form.enabled if form else (job.enabled if job else true)) %}checked{% endif %}>
+    <span>Enabled</span>
+  </label>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">{% if job %}Save changes{% else %}Create job{% endif %}</button>
+    <a href="/admin/jobs" class="btn">Cancel</a>
+  </div>
+</form>
+{% endblock %}

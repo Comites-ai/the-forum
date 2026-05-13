@@ -869,6 +869,42 @@ class FirestoreService:
             logger.error(f"Error fetching agent by scheduler API key hash: {e}")
             return None
 
+    async def list_recent_sessions_for_agent(
+        self, agent_id: str, limit: int = 10
+    ) -> List[Session]:
+        """
+        List the most-recently-active sessions for an agent.
+
+        Used by the admin UI to populate the per-agent recent-sessions table
+        and to derive per-platform "last used" timestamps.
+        """
+        try:
+            query = (
+                self.client.collection(self.sessions_collection)
+                .where(filter=FieldFilter("agent_id", "==", agent_id))
+                .order_by("last_activity_at", direction="DESCENDING")
+                .limit(limit)
+            )
+
+            sessions: List[Session] = []
+            async for doc in query.stream():
+                data = doc.to_dict()
+                for field in ("last_activity_at", "created_at"):
+                    if field in data:
+                        data[field] = to_aware_utc(data[field])
+                try:
+                    sessions.append(Session(**data, id=doc.id))
+                except Exception as validation_error:
+                    logger.warning(
+                        f"Skipping session {doc.id} due to validation error: {validation_error}"
+                    )
+                    continue
+            return sessions
+
+        except Exception as e:
+            logger.error(f"Error listing recent sessions for agent {agent_id}: {e}")
+            return []
+
     async def update_session_platforms(
         self, session_id: str, platform: str
     ) -> None:

@@ -49,6 +49,28 @@ resource "google_secret_manager_secret_iam_member" "compute_slack_signing_secret
   member    = "serviceAccount:${local.default_compute_sa}"
 }
 
+# Admin UI secrets — only when enable_admin_ui is true.
+resource "google_secret_manager_secret_iam_member" "compute_oauth_client_id" {
+  count     = var.enable_admin_ui ? 1 : 0
+  secret_id = google_secret_manager_secret.oauth_client_id[0].id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${local.default_compute_sa}"
+}
+
+resource "google_secret_manager_secret_iam_member" "compute_oauth_client_secret" {
+  count     = var.enable_admin_ui ? 1 : 0
+  secret_id = google_secret_manager_secret.oauth_client_secret[0].id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${local.default_compute_sa}"
+}
+
+resource "google_secret_manager_secret_iam_member" "compute_admin_session_secret" {
+  count     = var.enable_admin_ui ? 1 : 0
+  secret_id = google_secret_manager_secret.admin_session_secret[0].id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${local.default_compute_sa}"
+}
+
 # Note: Agent-specific secret access (like agent Google Chat credentials) should be
 # granted when you create those secrets. The middleware's Cloud Run service account
 # needs access to agent secrets at runtime.

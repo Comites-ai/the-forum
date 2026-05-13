@@ -1,0 +1,23 @@
+{% extends "admin/base.html" %}
+{% set show_chrome = false %}
+{% block title %}Enter The Forum{% endblock %}
+{% block body_class %}login-page{% endblock %}
+
+{% block content %}
+<section class="login-card">
+  <img src="/admin/static/admin/laurel.svg" alt="" class="laurel" width="120" height="120">
+  <h1>Enter The Forum</h1>
+  <p class="tagline">Administration of your deployment.</p>
+
+  <a class="btn btn-primary btn-lg" href="/admin/auth/login">
+    Sign in with Google
+  </a>
+
+  <p class="notice">
+    Signing in grants The Forum read access to your Google Cloud project credentials.
+    We use them to verify you own this deployment, look up Vertex AI agents,
+    and read Cloud Logging entries for this service. Tokens are stored in a
+    signed, HttpOnly session cookie and expire in about one hour.
+  </p>
+</section>
+{% endblock %}

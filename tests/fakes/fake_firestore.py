@@ -115,6 +115,27 @@ class FakeFirestoreService:
         self.sessions[session_key] = data
         return Session(**data, id=session_key)
 
+    async def list_recent_sessions_for_agent(
+        self, agent_id: str, limit: int = 10
+    ) -> List[Session]:
+        matches = []
+        for sid, data in self.sessions.items():
+            if data.get("agent_id") != agent_id:
+                continue
+            try:
+                matches.append(Session(**data, id=sid))
+            except Exception:
+                continue
+        matches.sort(key=lambda s: s.last_activity_at, reverse=True)
+        return matches[:limit]
+
+    # Test helper: insert a session record directly so route tests can seed
+    # per-agent sessions without exercising the create path.
+    def add_session(self, session_data: dict, session_id: str | None = None) -> str:
+        sid = session_id or f"session-{uuid.uuid4().hex[:8]}"
+        self.sessions[sid] = dict(session_data)
+        return sid
+
     async def update_session_platforms(self, session_id: str, platform: str) -> None:
         if session_id not in self.sessions:
             return

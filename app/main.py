@@ -4,19 +4,27 @@
 """FastAPI application entry point."""
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.routing import Mount
 
 from app.config import get_settings
 from app.api.v1 import routes as v1_routes
 from app.api.v1 import scheduler_mcp
+from app.core.dependencies import AdminAuthRequired
 from app.services.firestore_service import FirestoreService
 from app.services.vertex_ai_service import VertexAIService
 from app.services.slack_service import SlackService
 from app.services.scheduled_job_service import ScheduledJobService
 from app.services.gcs_service import GCSService
+from app.services.admin_auth_service import AdminAuthService
+from app.services.admin_logging_service import AdminLoggingService
+from app.services.admin_vertex_service import AdminVertexService
 
 # Configure logging
 logging.basicConfig(
@@ -48,6 +56,15 @@ async def lifespan(app: FastAPI):
     app.state.vertex_ai = VertexAIService()
     app.state.slack = SlackService()
     app.state.scheduled_job_service = ScheduledJobService(firestore=app.state.firestore)
+
+    if settings.admin_ui_enabled:
+        app.state.admin_auth = AdminAuthService(
+            project_id=settings.gcp_project_id,
+            required_role=settings.admin_required_role,
+        )
+        app.state.admin_logging = AdminLoggingService()
+        app.state.admin_vertex = AdminVertexService()
+        logger.info("Admin UI services initialized")
 
     # Initialize GCS service if configured
     if settings.gcs_enabled:
@@ -97,6 +114,32 @@ def create_app() -> FastAPI:
     app.routes.append(
         Mount(f"{settings.api_v1_prefix}/mcp/scheduler", app=scheduler_mcp.asgi_app)
     )
+
+    if settings.admin_ui_enabled:
+        from app.api.admin import routes as admin_routes
+        from app.api.admin.auth import build_oauth_client
+
+        app.add_middleware(
+            SessionMiddleware,
+            secret_key=settings.session_secret,
+            same_site="lax",
+            https_only=settings.environment == "production",
+        )
+
+        base_dir = Path(__file__).parent
+        app.state.templates = Jinja2Templates(directory=str(base_dir / "templates"))
+        app.state.oauth = build_oauth_client()
+
+        app.include_router(admin_routes.router)
+        app.mount(
+            "/admin/static",
+            StaticFiles(directory=str(base_dir / "static")),
+            name="admin-static",
+        )
+
+        @app.exception_handler(AdminAuthRequired)
+        async def _admin_auth_redirect(request: Request, _exc: AdminAuthRequired):
+            return RedirectResponse("/admin/login", status_code=303)
 
     # Health check endpoint
     @app.get("/health")

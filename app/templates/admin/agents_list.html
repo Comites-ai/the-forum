@@ -1,0 +1,58 @@
+{% extends "admin/base.html" %}
+{% block title %}Agents &middot; The Forum{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <h1>Agents</h1>
+  <p class="muted">All agents registered against this deployment.</p>
+</header>
+
+{% if not agents %}
+  <div class="empty-state">
+    <p>No agents are registered yet. Once you register an agent in the
+    <code>{{ agents_collection }}</code> Firestore collection it will appear here.</p>
+  </div>
+{% else %}
+<table class="data-table">
+  <thead>
+    <tr>
+      <th scope="col">Name</th>
+      <th scope="col">Platforms</th>
+      {% for platform in platform_columns %}
+      <th scope="col">Last used &middot; {{ platform_labels[platform] }}</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td>
+        <a href="/admin/agents/{{ row.agent.id }}">{{ row.agent.display_name }}</a>
+        <div class="muted small">{{ row.agent.id }}</div>
+      </td>
+      <td>
+        {% for platform in row.platforms %}
+        <span class="chip chip-{{ platform }}">{{ platform_labels[platform] }}</span>
+        {% else %}
+        <span class="muted">—</span>
+        {% endfor %}
+      </td>
+      {% for platform in platform_columns %}
+      <td>
+        {% if row.last_used.get(platform) %}
+          <time datetime="{{ row.last_used[platform].isoformat() }}">{{ row.last_used[platform].strftime('%Y-%m-%d %H:%M UTC') }}</time>
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="muted small">
+  "Last used" is derived from the most recent 10 sessions per agent.
+  Rarely-used platforms outside that window show as &mdash;.
+</p>
+{% endif %}
+{% endblock %}

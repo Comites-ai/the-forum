@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}The Forum{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/admin/static/admin/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/admin/static/admin.css">
+  {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  {% if show_chrome|default(true) %}
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="/admin/agents">
+        <img src="/admin/static/admin/logo.svg" alt="" width="36" height="36">
+        <span class="brand-text">The Forum</span>
+      </a>
+      <nav class="site-nav">
+        <a href="/admin/agents">Agents</a>
+        <a href="/admin/jobs">Scheduled Jobs</a>
+        <a href="/admin/auth/logout" class="logout">Log out</a>
+      </nav>
+    </div>
+    <div class="cornice" aria-hidden="true"></div>
+  </header>
+  {% endif %}
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <span>The Forum by Comites.ai &middot; <a href="/source">AGPL-3.0</a></span>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

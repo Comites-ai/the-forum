@@ -11,7 +11,7 @@ For most users, [`../scripts/install.sh`](../scripts/install.sh) is the easiest 
 - **Service Accounts**:
   - `scheduler-sa` (Cloud Scheduler invoker)
   - IAM bindings on the default compute SA (Firestore, Vertex AI, Cloud Run, Logging, Cloud Storage, Service Account User, Artifact Registry writer)
-- **Secret Manager**: `slack-signing-secret` container — only when `var.use_slack = true` (default). The value itself must be added manually after apply (see Post-Deployment Steps).
+- **Secret Manager**: `slack-signing-secret` container — only when `var.use_slack = true` (default). The value itself must be added manually after apply (see Post-Deployment Steps). When `var.enable_admin_ui = true`, three additional secrets are created — `oauth-client-id`, `oauth-client-secret`, `admin-session-secret` — populated from `TF_VAR_oauth_client_id_value`, `TF_VAR_oauth_client_secret_value`, and `TF_VAR_admin_session_secret_value`.
 - **GCS Buckets**:
   - `${PROJECT_ID}-slack-files` — temporary storage for uploaded Slack files (1-day lifecycle).
   - `${PROJECT_ID}-staging` — staging bucket for ADK Agent Engine deploys (7-day lifecycle, force_destroy=false).
@@ -180,6 +180,28 @@ cd ..
 ```
 
 This builds the image via Cloud Build and rolls it out, replacing the hello-world placeholder Cloud Run revision created by terraform.
+
+### 4. Admin UI (optional)
+
+To turn on the operator-facing admin UI at `/admin`, set `enable_admin_ui = true` and apply with the three OAuth-related TF_VARs populated:
+
+```bash
+TF_VAR_oauth_client_id_value="$CLIENT_ID" \
+TF_VAR_oauth_client_secret_value="$CLIENT_SECRET" \
+TF_VAR_admin_session_secret_value="$(openssl rand -hex 32)" \
+terraform apply
+```
+
+After the apply completes, terraform outputs `admin_redirect_uri`. Register it on the OAuth client (GCP Console → APIs & Services → Credentials), then push it onto the Cloud Run service — this step can't be done from inside the same terraform apply because the Cloud Run URL is only known after the service is created:
+
+```bash
+ADMIN_REDIRECT_URI=$(terraform output -raw admin_redirect_uri)
+gcloud run services update the-forum \
+  --region "$(terraform output -raw region)" \
+  --update-env-vars "OAUTH_REDIRECT_URI=${ADMIN_REDIRECT_URI}"
+```
+
+Until this last step the admin UI stays cleanly disabled (`settings.admin_ui_enabled` is False and `/admin/*` returns 404). See [../docs/ADMIN_UI.md](../docs/ADMIN_UI.md) for the full bring-up.
 
 ## Updating Infrastructure
 

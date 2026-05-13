@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">
+  <g fill="none" stroke="#b08d57" stroke-width="1.4" stroke-linecap="round">
+    <!-- Left branch -->
+    <path d="M30 100 Q20 60 40 22"/>
+    <!-- Right branch -->
+    <path d="M90 100 Q100 60 80 22"/>
+    <!-- Left leaves -->
+    <g fill="#b08d57" stroke="none">
+      <ellipse cx="26" cy="92" rx="6" ry="2.5" transform="rotate(-30 26 92)"/>
+      <ellipse cx="23" cy="80" rx="6" ry="2.5" transform="rotate(-25 23 80)"/>
+      <ellipse cx="22" cy="68" rx="6" ry="2.5" transform="rotate(-20 22 68)"/>
+      <ellipse cx="23" cy="56" rx="6" ry="2.5" transform="rotate(-15 23 56)"/>
+      <ellipse cx="26" cy="44" rx="6" ry="2.5" transform="rotate(-10 26 44)"/>
+      <ellipse cx="31" cy="33" rx="6" ry="2.5" transform="rotate(-5 31 33)"/>
+    </g>
+    <!-- Right leaves -->
+    <g fill="#b08d57" stroke="none">
+      <ellipse cx="94" cy="92" rx="6" ry="2.5" transform="rotate(30 94 92)"/>
+      <ellipse cx="97" cy="80" rx="6" ry="2.5" transform="rotate(25 97 80)"/>
+      <ellipse cx="98" cy="68" rx="6" ry="2.5" transform="rotate(20 98 68)"/>
+      <ellipse cx="97" cy="56" rx="6" ry="2.5" transform="rotate(15 97 56)"/>
+      <ellipse cx="94" cy="44" rx="6" ry="2.5" transform="rotate(10 94 44)"/>
+      <ellipse cx="89" cy="33" rx="6" ry="2.5" transform="rotate(5 89 33)"/>
+    </g>
+    <!-- Ribbon -->
+    <path d="M50 105 Q60 110 70 105" fill="#6b1f1f" stroke="none"/>
+    <path d="M52 105 L48 113" stroke="#6b1f1f" stroke-width="2.5"/>
+    <path d="M68 105 L72 113" stroke="#6b1f1f" stroke-width="2.5"/>
+  </g>
+</svg>

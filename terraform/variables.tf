@@ -53,3 +53,40 @@ variable "slack_signing_secret_value" {
   sensitive   = true
   default     = ""
 }
+
+# -----------------------------------------------------------------------------
+# Admin UI
+# -----------------------------------------------------------------------------
+
+variable "enable_admin_ui" {
+  description = "Whether to provision the Google-OAuth-gated admin UI at /admin. When true, terraform creates three Secret Manager secrets (OAuth client id/secret, session secret) and binds them onto the Cloud Run service. When false, the admin UI is not mounted and /admin/* returns 404."
+  type        = bool
+  default     = false
+}
+
+variable "oauth_client_id_value" {
+  description = "OAuth 2.0 Web Client ID for the admin UI. Create one in GCP Console → APIs & Services → Credentials. Required when enable_admin_ui is true. Pass via TF_VAR_oauth_client_id_value."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "oauth_client_secret_value" {
+  description = "OAuth 2.0 Web Client secret for the admin UI. Required when enable_admin_ui is true. Pass via TF_VAR_oauth_client_secret_value."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "admin_session_secret_value" {
+  description = "Random secret used to sign the admin session cookie. Required when enable_admin_ui is true. Generate with `openssl rand -hex 32` and pass via TF_VAR_admin_session_secret_value."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "admin_required_role" {
+  description = "IAM role the signed-in operator must hold on project_id to access the admin UI. Defaults to roles/owner. Inherited (folder/org) bindings are intentionally not honored — only direct project bindings."
+  type        = string
+  default     = "roles/owner"
+}

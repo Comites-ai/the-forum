@@ -1,0 +1,22 @@
+{% extends "admin/base.html" %}
+{% set show_chrome = false %}
+{% block title %}Access denied{% endblock %}
+{% block body_class %}login-page{% endblock %}
+
+{% block content %}
+<section class="login-card">
+  <h1>You shall not pass.</h1>
+  <p class="tagline">
+    Your Google account
+    {% if email %}({{ email }}){% endif %}
+    does not hold <code>{{ required_role }}</code> on
+    <code>{{ project_id }}</code>.
+  </p>
+  <p class="notice">
+    Only the operator of this deployment can access the admin UI. If this is
+    a mistake, confirm your account holds the required IAM role on the
+    project that hosts this Cloud Run service, then sign in again.
+  </p>
+  <a class="btn" href="/admin/login">Back to sign in</a>
+</section>
+{% endblock %}

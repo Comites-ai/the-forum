@@ -23,6 +23,7 @@ Build your own council of AI advisors. Deploy them to Slack, Google Chat, or Tel
 - **Cross-Platform Sessions**: Continue conversations across Slack, Google Chat, and Telegram
 - **Session Management**: Automatic session tracking per user+agent combination
 - **Scheduled Jobs**: Proactive agent-initiated messages with rate limiting
+- **Admin UI**: Optional Google-OAuth-gated operator console at `/admin` ([docs/ADMIN_UI.md](docs/ADMIN_UI.md))
 - **Async Processing**: Responds within 3 seconds, processes in background
 - **Infrastructure as Code**: Complete Terraform configuration
 - **Secure**: Request signature verification, Secret Manager integration
