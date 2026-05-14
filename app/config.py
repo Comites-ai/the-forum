@@ -66,6 +66,30 @@ class Settings(BaseSettings):
     # API settings
     api_v1_prefix: str = "/api/v1"
 
+    # Admin UI (Google OAuth, mounted at /admin)
+    # When OAuth credentials are blank, the admin UI is disabled entirely
+    # and the /admin paths simply 404. This keeps existing deployments
+    # unaffected until an operator opts in.
+    oauth_client_id: str = ""
+    oauth_client_secret: str = ""
+    oauth_redirect_uri: str = ""
+    session_secret: str = ""
+    admin_required_role: str = "roles/owner"
+    # Cloud Run service name used to scope Cloud Logging queries from the
+    # admin UI. Defaults to "the-forum" because that's the deployed name in
+    # the bundled terraform; override per environment if it differs.
+    cloud_run_service_name: str = "the-forum"
+
+    @property
+    def admin_ui_enabled(self) -> bool:
+        """Whether the admin UI should be mounted at /admin."""
+        return bool(
+            self.oauth_client_id
+            and self.oauth_client_secret
+            and self.oauth_redirect_uri
+            and self.session_secret
+        )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

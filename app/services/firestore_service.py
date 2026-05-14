@@ -716,6 +716,38 @@ class FirestoreService:
             logger.error(f"Error fetching user by primary_name {primary_name!r}: {e}")
             return None
 
+    async def list_users(self) -> List[User]:
+        """
+        List all users in the users collection.
+
+        Used by the admin UI to populate the user dropdown on the scheduled
+        job form. Volume is small (one row per real human across all
+        platforms), so an unfiltered scan is fine.
+        """
+        try:
+            users: List[User] = []
+            async for doc in self.client.collection(self.users_collection).stream():
+                data = doc.to_dict()
+                for field in ("created_at", "updated_at"):
+                    if field in data:
+                        data[field] = to_aware_utc(data[field])
+                if "identities" in data:
+                    for identity in data["identities"]:
+                        if "linked_at" in identity:
+                            identity["linked_at"] = to_aware_utc(identity["linked_at"])
+                try:
+                    users.append(User(**data, id=doc.id))
+                except Exception as validation_error:
+                    logger.warning(
+                        f"Skipping user {doc.id} due to validation error: {validation_error}"
+                    )
+                    continue
+            users.sort(key=lambda u: u.primary_name.lower())
+            return users
+        except Exception as e:
+            logger.error(f"Error listing users: {e}")
+            return []
+
     async def add_user_identity(
         self, user_id: str, identity: PlatformIdentity
     ) -> None:
@@ -868,6 +900,51 @@ class FirestoreService:
         except Exception as e:
             logger.error(f"Error fetching agent by scheduler API key hash: {e}")
             return None
+
+    async def list_recent_sessions_for_agent(
+        self, agent_id: str, limit: int = 10
+    ) -> List[Session]:
+        """
+        List the most-recently-active sessions for an agent.
+
+        Used by the admin UI to populate the per-agent recent-sessions table
+        and to derive per-platform "last used" timestamps.
+
+        The agent_id filter is applied server-side; ordering by
+        last_activity_at would need a composite Firestore index
+        (agent_id + last_activity_at), so instead we fetch all matching
+        sessions and sort/slice in memory. Per-agent session volume is
+        bounded (a session is a (user, agent) pair and gets expired on
+        access after session_timeout_minutes of inactivity), so this stays
+        cheap for any realistic deployment.
+        """
+        try:
+            query = self.client.collection(self.sessions_collection).where(
+                filter=FieldFilter("agent_id", "==", agent_id)
+            )
+
+            sessions: List[Session] = []
+            async for doc in query.stream():
+                data = doc.to_dict()
+                for field in ("last_activity_at", "created_at"):
+                    if field in data:
+                        data[field] = to_aware_utc(data[field])
+                try:
+                    sessions.append(Session(**data, id=doc.id))
+                except Exception as validation_error:
+                    logger.warning(
+                        f"Skipping session {doc.id} due to validation error: {validation_error}"
+                    )
+                    continue
+            sessions.sort(
+                key=lambda s: s.last_activity_at,
+                reverse=True,
+            )
+            return sessions[:limit]
+
+        except Exception as e:
+            logger.error(f"Error listing recent sessions for agent {agent_id}: {e}")
+            return []
 
     async def update_session_platforms(
         self, session_id: str, platform: str

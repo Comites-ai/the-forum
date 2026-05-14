@@ -1,0 +1,68 @@
+{% extends "admin/base.html" %}
+{% block title %}Scheduled Jobs &middot; The Forum{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div class="row-between">
+    <div>
+      <h1>Scheduled Jobs</h1>
+      <p class="muted">Recurring prompts that dispatch to agents on a cron schedule.</p>
+    </div>
+    <a class="btn btn-primary" href="/admin/jobs/new">+ Create job</a>
+  </div>
+</header>
+
+{% if not jobs %}
+<div class="empty-state">
+  <p>No scheduled jobs yet. Click <a href="/admin/jobs/new">Create job</a> to add the first one.</p>
+</div>
+{% else %}
+<table class="data-table">
+  <thead>
+    <tr>
+      <th scope="col">Name</th>
+      <th scope="col">Agent</th>
+      <th scope="col">Platform</th>
+      <th scope="col">Cron</th>
+      <th scope="col">Schedule</th>
+      <th scope="col">Timezone</th>
+      <th scope="col">Enabled</th>
+      <th scope="col">Last execution</th>
+      <th scope="col">Last error</th>
+      <th scope="col"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for job in jobs %}
+    <tr>
+      <td>{{ job.name }}</td>
+      <td>
+        {% if agent_names.get(job.agent_id) %}
+          <a href="/admin/agents/{{ job.agent_id }}">{{ agent_names[job.agent_id] }}</a>
+        {% else %}
+          <code class="small">{{ job.agent_id }}</code>
+        {% endif %}
+      </td>
+      <td><span class="chip chip-{{ job.output_platform }}">{{ platform_labels.get(job.output_platform, job.output_platform) }}</span></td>
+      <td><code class="small">{{ job.schedule }}</code></td>
+      <td>{{ schedule_descriptions[job.id] }}</td>
+      <td>{{ job.timezone }}</td>
+      <td>{% if job.enabled %}<span class="status-on">on</span>{% else %}<span class="status-off">off</span>{% endif %}</td>
+      <td>
+        {% if job.last_execution_at %}<time datetime="{{ job.last_execution_at.isoformat() }}">{{ job.last_execution_at.strftime('%Y-%m-%d %H:%M UTC') }}</time>{% else %}<span class="muted">—</span>{% endif %}
+      </td>
+      <td>
+        {% if job.last_error %}<span class="status-off" title="{{ job.last_error }}">failure</span>{% else %}<span class="muted">—</span>{% endif %}
+      </td>
+      <td class="actions">
+        <a href="/admin/jobs/{{ job.id }}/edit">Edit</a>
+        <form method="post" action="/admin/jobs/{{ job.id }}/delete" onsubmit="return confirm('Delete job {{ job.name }}?');">
+          <button type="submit" class="link-button">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

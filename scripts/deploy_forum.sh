@@ -81,15 +81,48 @@ echo "  Commit:     $COMMIT_SHORT ($COMMIT_MSG)"
 echo "  Config:     $CONFIG"
 echo ""
 
-# --- Detect whether Slack is in use ---
-# cloudbuild.yaml only adds --set-secrets for Slack when _EXTRA_FLAGS is set.
-# We auto-detect by checking whether terraform created the slack-signing-secret.
-EXTRA_FLAGS=""
+# --- Detect optional integrations via Secret Manager ---
+# Build a unified --set-secrets list from secrets that exist in the project.
+# A single --set-secrets flag carries every secret binding because gcloud's
+# --set-* family replaces any siblings of its own kind on the new revision.
+SECRETS_LIST=""
+EXTRA_ENV_VARS=""
+
 if gcloud secrets describe slack-signing-secret --project="$PROJECT_ID" &>/dev/null; then
-    EXTRA_FLAGS="--set-secrets=SLACK_SIGNING_SECRET=slack-signing-secret:latest"
+    SECRETS_LIST="SLACK_SIGNING_SECRET=slack-signing-secret:latest"
     echo "  Slack:    detected (slack-signing-secret present)"
 else
     echo "  Slack:    not in use (slack-signing-secret absent)"
+fi
+
+# Admin UI: presence of oauth-client-id is the canonical signal. When it's
+# there we expect all three admin secrets and we also need to set the
+# OAUTH_REDIRECT_URI env var (Cloud Run URL is only known after the service
+# exists, so terraform can't bake it in).
+if gcloud secrets describe oauth-client-id --project="$PROJECT_ID" &>/dev/null; then
+    SERVICE_URL=$(gcloud run services describe the-forum \
+        --project="$PROJECT_ID" --region="$REGION" \
+        --format="value(status.url)" 2>/dev/null || true)
+    if [[ -z "$SERVICE_URL" ]]; then
+        echo "  Admin UI: oauth-client-id present but the-forum service URL not resolvable yet."
+        echo "            Skipping admin env binding for this deploy; re-run after the service exists."
+    else
+        ADMIN_SECRETS="OAUTH_CLIENT_ID=oauth-client-id:latest,OAUTH_CLIENT_SECRET=oauth-client-secret:latest,SESSION_SECRET=admin-session-secret:latest"
+        if [[ -n "$SECRETS_LIST" ]]; then
+            SECRETS_LIST="${SECRETS_LIST},${ADMIN_SECRETS}"
+        else
+            SECRETS_LIST="$ADMIN_SECRETS"
+        fi
+        EXTRA_ENV_VARS=",OAUTH_REDIRECT_URI=${SERVICE_URL}/admin/auth/callback,ADMIN_REQUIRED_ROLE=roles/owner,CLOUD_RUN_SERVICE_NAME=the-forum"
+        echo "  Admin UI: detected (oauth-client-id present) — redirect ${SERVICE_URL}/admin/auth/callback"
+    fi
+else
+    echo "  Admin UI: not in use (oauth-client-id absent)"
+fi
+
+EXTRA_FLAGS=""
+if [[ -n "$SECRETS_LIST" ]]; then
+    EXTRA_FLAGS="--set-secrets=$SECRETS_LIST"
 fi
 echo ""
 
@@ -98,7 +131,7 @@ echo "Submitting Cloud Build..."
 gcloud builds submit "$REPO_ROOT" \
     --config="$REPO_ROOT/$CONFIG" \
     --project="$PROJECT_ID" \
-    --substitutions="COMMIT_SHA=$COMMIT_SHA,_GCP_LOCATION=$REGION,_GCS_BUCKET_NAME=$GCS_BUCKET,_EXTRA_FLAGS=$EXTRA_FLAGS"
+    --substitutions="^|^COMMIT_SHA=$COMMIT_SHA|_GCP_LOCATION=$REGION|_GCS_BUCKET_NAME=$GCS_BUCKET|_EXTRA_FLAGS=$EXTRA_FLAGS|_EXTRA_ENV_VARS=$EXTRA_ENV_VARS"
 
 echo ""
 
@@ -140,8 +173,23 @@ fi
 
 echo ""
 echo "=== Deployment complete ==="
-echo "Service URL:"
-gcloud run services describe "$SERVICE_NAME" \
+FINAL_URL=$(gcloud run services describe "$SERVICE_NAME" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
-    --format="value(status.url)" 2>/dev/null || echo "  (could not retrieve — check Cloud Console)"
+    --format="value(status.url)" 2>/dev/null || true)
+
+if [[ -n "$FINAL_URL" ]]; then
+    echo "Service URL: $FINAL_URL"
+
+    # When the admin UI is provisioned, surface the bookmarkable admin URL
+    # so the operator doesn't have to remember the /admin/ suffix.
+    if gcloud secrets describe oauth-client-id --project="$PROJECT_ID" &>/dev/null; then
+        echo ""
+        echo "┌──────────────────────────────────────────────────────────────"
+        echo "│ Admin UI: $FINAL_URL/admin/"
+        echo "│ Bookmark this URL — it's how you'll reach the operator console."
+        echo "└──────────────────────────────────────────────────────────────"
+    fi
+else
+    echo "  Service URL: (could not retrieve — check Cloud Console)"
+fi

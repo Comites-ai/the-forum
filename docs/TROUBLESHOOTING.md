@@ -809,6 +809,65 @@ pip install aiohttp
 
 ---
 
+## Admin UI Issues
+
+### Sign-in works but I land on "You shall not pass."
+
+**Symptoms**: OAuth completes, then the admin UI shows the forbidden page
+with your email and the required role.
+
+**Cause**: Your Google account does not hold the required role
+(`roles/owner` by default) as a **direct** binding on `GCP_PROJECT_ID`.
+Inherited roles from folder or org bindings are intentionally not honored.
+
+**Solutions**:
+
+1. Grant yourself a direct project binding:
+   ```bash
+   gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" \
+     --member="user:you@example.com" \
+     --role="roles/owner"
+   ```
+2. Or override the required role to one you already hold directly by
+   setting `ADMIN_REQUIRED_ROLE=roles/editor` (or similar) on the Cloud Run
+   service and redeploying.
+
+### `redirect_uri_mismatch` from Google during sign-in
+
+**Symptoms**: Google's OAuth consent screen shows a
+`redirect_uri_mismatch` error.
+
+**Cause**: The redirect URI registered on your OAuth client ID doesn't
+match `OAUTH_REDIRECT_URI` in your environment.
+
+**Solutions**:
+
+1. In GCP Console → APIs & Services → Credentials → your OAuth client, add
+   the exact URL from `OAUTH_REDIRECT_URI` to "Authorized redirect URIs."
+2. Google accepts `http://localhost` for local dev but **not**
+   `http://127.0.0.1`. Switch to `localhost` if you used the IP form.
+
+### Last-error card shows nothing even though errors happened
+
+**Symptoms**: Agent detail page shows "No recent errors" but Cloud Run
+logs clearly show ERROR-level entries for the agent.
+
+**Causes & solutions**:
+
+1. **Cloud Logging API not enabled** for the project:
+   ```bash
+   gcloud services enable logging.googleapis.com
+   ```
+2. **Service name mismatch.** The filter scopes by
+   `resource.labels.service_name="$CLOUD_RUN_SERVICE_NAME"` (default
+   `the-forum`). If your Cloud Run service has a different name, set
+   `CLOUD_RUN_SERVICE_NAME` on the service and redeploy.
+3. **Log entry doesn't mention `agent_id`.** The filter matches either
+   `jsonPayload.agent_id="<id>"` or `textPayload:"<id>"`. If logs reference
+   the agent only by display name, the filter won't match.
+
+---
+
 ## Getting Help
 
 If you've tried the above and still have issues:

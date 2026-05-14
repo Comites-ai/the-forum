@@ -15,9 +15,11 @@ steps:
     args: ['push', '--all-tags', 'gcr.io/$PROJECT_ID/the-forum']
 
   # Deploy to Cloud Run.
-  # _EXTRA_FLAGS is set by deploy_forum.sh based on whether the
-  # slack-signing-secret exists in the project (Slack is in use). When Slack
-  # is not in use, _EXTRA_FLAGS is empty and no --set-secrets flag is passed.
+  # _EXTRA_FLAGS is set by deploy_forum.sh based on which secrets exist in
+  # the project (Slack signing secret, admin UI OAuth/session secrets).
+  # _EXTRA_ENV_VARS carries the admin UI env vars when the admin UI is in
+  # use (leading comma included). Both substitutions default to empty so
+  # deployments without the admin UI are unaffected.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: bash
     args:
@@ -29,11 +31,12 @@ steps:
           --region="$_GCP_LOCATION" \
           --platform=managed \
           --allow-unauthenticated \
-          --set-env-vars="GCP_PROJECT_ID=$PROJECT_ID,ENVIRONMENT=production,GCP_LOCATION=$_GCP_LOCATION,GCS_BUCKET_NAME=$_GCS_BUCKET_NAME" \
+          --set-env-vars="GCP_PROJECT_ID=$PROJECT_ID,ENVIRONMENT=production,GCP_LOCATION=$_GCP_LOCATION,GCS_BUCKET_NAME=$_GCS_BUCKET_NAME$_EXTRA_ENV_VARS" \
           $_EXTRA_FLAGS
 
 substitutions:
   _EXTRA_FLAGS: ''
+  _EXTRA_ENV_VARS: ''
 
 options:
   logging: CLOUD_LOGGING_ONLY

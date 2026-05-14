@@ -35,6 +35,11 @@ output "google_chat_webhook_url" {
   value       = "${google_cloud_run_v2_service.forum.uri}/api/v1/google-chat/events"
 }
 
+output "admin_redirect_uri" {
+  description = "Redirect URI to register on the OAuth client and set as OAUTH_REDIRECT_URI on the Cloud Run service. Only meaningful when enable_admin_ui is true."
+  value       = "${google_cloud_run_v2_service.forum.uri}/admin/auth/callback"
+}
+
 output "next_steps" {
   description = "Next steps after Terraform apply"
   value       = <<-EOT
@@ -55,6 +60,8 @@ output "next_steps" {
 
     4. For agent-specific setup (Google Chat bots, etc.):
        See docs/FOR_AGENT_DEVELOPERS.md for complete instructions
+
+    ${var.enable_admin_ui ? "5. Admin UI bring-up: register this URL as an authorized redirect URI on your OAuth client, then set it on the Cloud Run service:\n         ${google_cloud_run_v2_service.forum.uri}/admin/auth/callback\n       gcloud run services update ${var.cloud_run_service_name} \\\n         --region ${var.region} \\\n         --update-env-vars OAUTH_REDIRECT_URI=${google_cloud_run_v2_service.forum.uri}/admin/auth/callback\n       Then visit ${google_cloud_run_v2_service.forum.uri}/admin/" : ""}
 
     ====================================================
   EOT

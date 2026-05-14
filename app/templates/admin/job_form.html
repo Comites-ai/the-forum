@@ -1,0 +1,264 @@
+{% extends "admin/base.html" %}
+{% block title %}{% if job %}Edit{% else %}Create{% endif %} job &middot; The Forum{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <a class="back-link" href="/admin/jobs">&larr; Scheduled jobs</a>
+  <h1>{% if job %}Edit "{{ job.name }}"{% else %}Create scheduled job{% endif %}</h1>
+</header>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<form class="form-card" method="post" action="{% if job %}/admin/jobs/{{ job.id }}/edit{% else %}/admin/jobs/new{% endif %}">
+  <label class="field">
+    <span class="field-label">Name</span>
+    <input type="text" name="name" required maxlength="100" value="{{ form.name or (job.name if job else '') }}">
+  </label>
+
+  <label class="field">
+    <span class="field-label">Prompt</span>
+    <textarea name="prompt" rows="4" required maxlength="4000">{{ form.prompt or (job.prompt if job else '') }}</textarea>
+  </label>
+
+  <label class="field">
+    <span class="field-label">Agent</span>
+    <select name="agent_id" required {% if job %}disabled{% endif %}>
+      <option value="">— Select agent —</option>
+      {% for agent in agents %}
+      <option value="{{ agent.id }}" {% if (form.agent_id or (job.agent_id if job else '')) == agent.id %}selected{% endif %}>{{ agent.display_name }}</option>
+      {% endfor %}
+    </select>
+    {% if job %}<input type="hidden" name="agent_id" value="{{ job.agent_id }}">{% endif %}
+  </label>
+
+  <label class="field">
+    <span class="field-label">User</span>
+    {% set selected_user_id = form.user_id or (job.user_id if job else '') %}
+    <select name="user_id" required {% if job %}disabled{% endif %}>
+      <option value="">— Select user —</option>
+      {% for user in users %}
+      <option value="{{ user.id }}" {% if selected_user_id == user.id %}selected{% endif %}>
+        {{ user.primary_name }}{% if user.email %} ({{ user.email }}){% endif %}
+      </option>
+      {% endfor %}
+    </select>
+    {% if job %}<input type="hidden" name="user_id" value="{{ job.user_id }}">{% endif %}
+    <span class="field-hint">The unified user whose identity is used to deliver responses.</span>
+  </label>
+
+  <label class="field">
+    <span class="field-label">Output platform</span>
+    <select name="output_platform" required>
+      {% for platform in platforms %}
+      <option value="{{ platform }}" {% if (form.output_platform or (job.output_platform if job else 'slack')) == platform %}selected{% endif %}>{{ platform_labels[platform] }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <fieldset class="field cron-builder" id="cron-builder">
+    <legend class="field-label">Schedule builder</legend>
+    <p class="field-hint cron-intro">Pick a frequency tab, fill in the fields, and the cron expression below updates. Switch to Custom to type one directly.</p>
+
+    <div class="cron-tabs" role="tablist">
+      <button type="button" class="cron-tab" data-mode="custom" role="tab">Custom</button>
+      <button type="button" class="cron-tab" data-mode="hourly" role="tab">Hourly</button>
+      <button type="button" class="cron-tab" data-mode="daily" role="tab">Daily</button>
+      <button type="button" class="cron-tab" data-mode="weekly" role="tab">Once per Day</button>
+      <button type="button" class="cron-tab" data-mode="monthly" role="tab">Monthly</button>
+    </div>
+
+    <div class="cron-panel" data-mode="custom" role="tabpanel">
+      <p class="cron-custom-note">Type the cron expression below in the Cron expression box. The other tabs auto-fill it for you.</p>
+    </div>
+
+    <div class="cron-panel" data-mode="hourly" role="tabpanel" hidden>
+      <div class="cron-row">
+        <span>At minute</span>
+        <select id="cron-hourly-min" class="cron-narrow">
+          {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
+        </select>
+        <span>of every hour</span>
+      </div>
+    </div>
+
+    <div class="cron-panel" data-mode="daily" role="tabpanel" hidden>
+      <p class="cron-custom-note">Runs every day. For specific days, use the "Once per Day" tab.</p>
+      <div class="cron-row">
+        <span class="cron-q">At what time?</span>
+        <span class="cron-clock">
+          <select id="cron-daily-hour" class="cron-time-part" aria-label="Hour">
+            {% for h in range(24) %}<option value="{{ h }}" {% if h == 9 %}selected{% endif %}>{{ "%02d"|format(h) }}</option>{% endfor %}
+          </select>
+          <span class="cron-clock-sep">:</span>
+          <select id="cron-daily-min" class="cron-time-part" aria-label="Minute">
+            {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
+          </select>
+        </span>
+      </div>
+    </div>
+
+    <div class="cron-panel" data-mode="weekly" role="tabpanel" hidden>
+      <div class="cron-row cron-row-stacked">
+        <span class="cron-q">On which days?</span>
+        <div class="cron-days-list">
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="1"> Monday</label>
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="2"> Tuesday</label>
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="3"> Wednesday</label>
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="4"> Thursday</label>
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="5"> Friday</label>
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="6"> Saturday</label>
+          <label class="cron-check"><input type="checkbox" class="cron-weekly-day" value="0"> Sunday</label>
+        </div>
+      </div>
+      <div class="cron-row">
+        <span class="cron-q">At what time?</span>
+        <span class="cron-clock">
+          <select id="cron-weekly-hour" class="cron-time-part" aria-label="Hour">
+            {% for h in range(24) %}<option value="{{ h }}" {% if h == 9 %}selected{% endif %}>{{ "%02d"|format(h) }}</option>{% endfor %}
+          </select>
+          <span class="cron-clock-sep">:</span>
+          <select id="cron-weekly-min" class="cron-time-part" aria-label="Minute">
+            {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
+          </select>
+        </span>
+      </div>
+    </div>
+
+    <div class="cron-panel" data-mode="monthly" role="tabpanel" hidden>
+      <div class="cron-row">
+        <span class="cron-q">On which day of the month?</span>
+        <select id="cron-monthly-day" class="cron-narrow" aria-label="Day of month">
+          {% for d in range(1, 32) %}<option value="{{ d }}" {% if d == 1 %}selected{% endif %}>{{ d }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="cron-row">
+        <span class="cron-q">At what time?</span>
+        <span class="cron-clock">
+          <select id="cron-monthly-hour" class="cron-time-part" aria-label="Hour">
+            {% for h in range(24) %}<option value="{{ h }}" {% if h == 9 %}selected{% endif %}>{{ "%02d"|format(h) }}</option>{% endfor %}
+          </select>
+          <span class="cron-clock-sep">:</span>
+          <select id="cron-monthly-min" class="cron-time-part" aria-label="Minute">
+            {% for m in range(60) %}<option value="{{ m }}" {% if m == 0 %}selected{% endif %}>{{ "%02d"|format(m) }}</option>{% endfor %}
+          </select>
+        </span>
+      </div>
+    </div>
+  </fieldset>
+
+  <label class="field">
+    <span class="field-label">Cron expression</span>
+    <input type="text" name="schedule" id="cron-input" required value="{{ form.schedule or (job.schedule if job else '') }}" placeholder="0 9 * * 1-5">
+    <span class="field-hint">
+      5-field cron expression. The builder above writes here; you can also type it directly (Frequency switches to Custom).
+    </span>
+  </label>
+
+  <label class="field">
+    <span class="field-label">Timezone</span>
+    {% set saved_tz = form.timezone or (job.timezone if job else '') %}
+    <select name="timezone" required data-detect-tz="{{ '0' if job or form.timezone else '1' }}">
+      {% for tz in timezones %}<option value="{{ tz }}" {% if saved_tz == tz %}selected{% endif %}>{{ tz }}</option>{% endfor %}
+    </select>
+    <span class="field-hint">IANA timezone. Defaults to your browser's local timezone on new jobs.</span>
+  </label>
+
+  <label class="field field-checkbox">
+    <input type="checkbox" name="enabled" value="1" {% if (form.enabled if form else (job.enabled if job else true)) %}checked{% endif %}>
+    <span>Enabled</span>
+  </label>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">{% if job %}Save changes{% else %}Create job{% endif %}</button>
+    <a href="/admin/jobs" class="btn">Cancel</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const cronInput = document.getElementById('cron-input');
+  const tabs = document.querySelectorAll('.cron-tab');
+  const panels = document.querySelectorAll('.cron-panel');
+  let currentMode = 'custom';
+
+  function setMode(mode) {
+    currentMode = mode;
+    tabs.forEach(function (t) {
+      const on = t.dataset.mode === mode;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    panels.forEach(function (p) {
+      p.hidden = p.dataset.mode !== mode;
+    });
+  }
+
+  function intVal(id) {
+    const el = document.getElementById(id);
+    return el ? (parseInt(el.value, 10) || 0) : 0;
+  }
+
+  function buildCron() {
+    if (currentMode === 'custom') return; // leave the text input untouched
+
+    let expr = '';
+    if (currentMode === 'hourly') {
+      expr = intVal('cron-hourly-min') + ' * * * *';
+    } else if (currentMode === 'daily') {
+      expr = intVal('cron-daily-min') + ' ' + intVal('cron-daily-hour') + ' * * *';
+    } else if (currentMode === 'weekly') {
+      const days = Array.prototype.slice.call(
+        document.querySelectorAll('.cron-weekly-day:checked')
+      ).map(function (c) { return c.value; });
+      const dayPart = days.length ? days.join(',') : '*';
+      expr = intVal('cron-weekly-min') + ' ' + intVal('cron-weekly-hour') + ' * * ' + dayPart;
+    } else if (currentMode === 'monthly') {
+      const day = intVal('cron-monthly-day') || 1;
+      expr = intVal('cron-monthly-min') + ' ' + intVal('cron-monthly-hour') + ' ' + day + ' * *';
+    }
+    cronInput.value = expr;
+  }
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      setMode(tab.dataset.mode);
+      buildCron();
+    });
+  });
+
+  document.querySelectorAll('#cron-builder input, #cron-builder select').forEach(function (el) {
+    el.addEventListener('input', buildCron);
+    el.addEventListener('change', buildCron);
+  });
+
+  // If the operator types directly into the cron field, flip to Custom so
+  // the builder doesn't clobber what they wrote on the next interaction.
+  cronInput.addEventListener('input', function () {
+    if (currentMode !== 'custom') setMode('custom');
+  });
+
+  // Always boot in Custom: on create the field is blank (so nothing gets
+  // overwritten until the operator picks a tab); on edit the existing
+  // expression stays visible and intact.
+  setMode('custom');
+})();
+
+// On a brand-new job form, default the timezone dropdown to the browser's
+// resolved IANA zone. data-detect-tz="1" is set server-side when there is
+// no existing timezone value to preserve.
+(function () {
+  const sel = document.querySelector('select[name="timezone"]');
+  if (!sel || sel.dataset.detectTz !== '1') return;
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (tz && Array.prototype.some.call(sel.options, function (o) { return o.value === tz; })) {
+      sel.value = tz;
+    }
+  } catch (e) { /* ignore */ }
+})();
+</script>
+{% endblock %}

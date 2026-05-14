@@ -42,3 +42,70 @@ resource "google_secret_manager_secret_version" "slack_signing_secret" {
 # Agent-specific credentials (like Google Chat service account keys) should be created
 # manually and granted access to the middleware's Cloud Run service account.
 # See docs/FOR_AGENT_DEVELOPERS.md for instructions.
+
+# -----------------------------------------------------------------------------
+# Admin UI secrets (created only when enable_admin_ui is true)
+# -----------------------------------------------------------------------------
+
+resource "google_secret_manager_secret" "oauth_client_id" {
+  count     = var.enable_admin_ui ? 1 : 0
+  secret_id = "oauth-client-id"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret_version" "oauth_client_id" {
+  count       = var.enable_admin_ui ? 1 : 0
+  secret      = google_secret_manager_secret.oauth_client_id[0].id
+  secret_data = var.oauth_client_id_value
+  lifecycle {
+    precondition {
+      condition     = length(var.oauth_client_id_value) > 0
+      error_message = "When enable_admin_ui is true, oauth_client_id_value must be non-empty. Pass via TF_VAR_oauth_client_id_value."
+    }
+  }
+}
+
+resource "google_secret_manager_secret" "oauth_client_secret" {
+  count     = var.enable_admin_ui ? 1 : 0
+  secret_id = "oauth-client-secret"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret_version" "oauth_client_secret" {
+  count       = var.enable_admin_ui ? 1 : 0
+  secret      = google_secret_manager_secret.oauth_client_secret[0].id
+  secret_data = var.oauth_client_secret_value
+  lifecycle {
+    precondition {
+      condition     = length(var.oauth_client_secret_value) > 0
+      error_message = "When enable_admin_ui is true, oauth_client_secret_value must be non-empty. Pass via TF_VAR_oauth_client_secret_value."
+    }
+  }
+}
+
+resource "google_secret_manager_secret" "admin_session_secret" {
+  count     = var.enable_admin_ui ? 1 : 0
+  secret_id = "admin-session-secret"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret_version" "admin_session_secret" {
+  count       = var.enable_admin_ui ? 1 : 0
+  secret      = google_secret_manager_secret.admin_session_secret[0].id
+  secret_data = var.admin_session_secret_value
+  lifecycle {
+    precondition {
+      condition     = length(var.admin_session_secret_value) > 0
+      error_message = "When enable_admin_ui is true, admin_session_secret_value must be non-empty. Generate via `openssl rand -hex 32` and pass via TF_VAR_admin_session_secret_value."
+    }
+  }
+}

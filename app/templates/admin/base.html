@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}The Forum{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/admin/static/admin/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/admin/static/admin.css">
+  {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  {% if show_chrome|default(true) %}
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="/admin/agents">
+        <img src="/admin/static/admin/logo.svg" alt="" width="36" height="36">
+        <span class="brand-text">The Forum</span>
+      </a>
+      <nav class="site-nav">
+        <a href="/admin/agents">Agents</a>
+        <a href="/admin/jobs">Scheduled Jobs</a>
+        <a href="/admin/auth/logout" class="logout">Log out</a>
+      </nav>
+    </div>
+    <div class="cornice" aria-hidden="true"></div>
+  </header>
+  {% endif %}
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% if show_chrome|default(true) %}
+  <footer class="site-footer">
+    <span>The Forum by
+      <a href="https://comites.ai" target="_blank" rel="noopener">Comites.ai</a>
+      &middot; AGPL-3.0
+    </span>
+  </footer>
+  {% endif %}
+
+  <script>
+    // Format every <time datetime="..."> to the operator's local timezone.
+    // Server-side templates render an ISO-8601 UTC string in the datetime
+    // attribute; here we replace the visible text with a locale-aware
+    // representation so admins see times in their own clock.
+    (function () {
+      var fmt;
+      try {
+        fmt = new Intl.DateTimeFormat(undefined, {
+          year: 'numeric', month: 'short', day: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+          timeZoneName: 'short'
+        });
+      } catch (e) { return; }
+      document.querySelectorAll('time[datetime]').forEach(function (el) {
+        var d = new Date(el.getAttribute('datetime'));
+        if (isNaN(d.getTime())) return;
+        el.textContent = fmt.format(d);
+      });
+    })();
+  </script>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,119 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ agent.display_name }} &middot; The Forum{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <a class="back-link" href="/admin/agents">&larr; All agents</a>
+  <h1>{{ agent.display_name }}</h1>
+  <p class="muted">{{ agent.id }}</p>
+
+  {% if console_url %}
+  <a class="btn btn-primary" href="{{ console_url }}" target="_blank" rel="noopener">
+    Open in Vertex AI Console &rarr;
+  </a>
+  {% else %}
+  <div class="muted small">
+    Could not resolve Reasoning Engine resource
+    <code>{{ agent.vertex_ai_agent_id }}</code> via the Vertex AI API.
+  </div>
+  {% endif %}
+</header>
+
+<section class="card">
+  <h2>Agent metadata</h2>
+  <dl class="kv">
+    <dt>Vertex AI agent resource</dt>
+    <dd><code>{{ agent.vertex_ai_agent_id }}</code></dd>
+    {% if engine %}
+    <dt>Reasoning engine display name</dt>
+    <dd>{{ engine.get('displayName') or '—' }}</dd>
+    <dt>Created</dt>
+    <dd>{{ engine.get('createTime') or '—' }}</dd>
+    <dt>Updated</dt>
+    <dd>{{ engine.get('updateTime') or '—' }}</dd>
+    {% endif %}
+  </dl>
+</section>
+
+<section class="card">
+  <h2>Platform connectors</h2>
+  {% if agent.platforms %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th scope="col">Platform</th>
+        <th scope="col">Status</th>
+        <th scope="col">Bot identifier</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in agent.platforms %}
+      <tr>
+        <td><span class="chip chip-{{ p.platform }}">{{ platform_labels.get(p.platform, p.platform) }}</span></td>
+        <td>{% if p.enabled %}<span class="status-on">Enabled</span>{% else %}<span class="status-off">Disabled</span>{% endif %}</td>
+        <td>
+          <code>{{ p.slack_bot_id or p.google_chat_bot_name or '—' }}</code>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No platform connectors configured.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Last error</h2>
+  {% if last_error %}
+  <p class="muted small">
+    Severity {{ last_error.get('severity', 'ERROR') }} &middot;
+    {{ last_error.get('timestamp', '—') }}
+  </p>
+  <pre class="error-block">{{ last_error.get('textPayload') or last_error.get('jsonPayload') or last_error }}</pre>
+  {% else %}
+  <p class="muted">No recent errors found for this agent in Cloud Logging.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Recent sessions</h2>
+  {% if sessions %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th scope="col">Session</th>
+        <th scope="col">User</th>
+        <th scope="col">Last platform</th>
+        <th scope="col">Platforms used</th>
+        <th scope="col">Last activity</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in sessions %}
+      <tr>
+        <td><code class="small">{{ s.vertex_ai_session_id }}</code></td>
+        <td><code class="small">{{ s.user_id }}</code></td>
+        <td>
+          {% if s.last_active_platform %}
+          <span class="chip chip-{{ s.last_active_platform }}">{{ platform_labels.get(s.last_active_platform, s.last_active_platform) }}</span>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td>
+          {% for platform in s.platforms_used %}<span class="chip chip-{{ platform }}">{{ platform_labels.get(platform, platform) }}</span>{% endfor %}
+        </td>
+        <td><time datetime="{{ s.last_activity_at.isoformat() }}">{{ s.last_activity_at.strftime('%Y-%m-%d %H:%M UTC') }}</time></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No sessions yet.</p>
+  {% endif %}
+</section>
+
+<section class="card charts" id="charts">
+  <h2>Activity</h2>
+  <p class="muted">Activity charts coming soon.</p>
+</section>
+{% endblock %}

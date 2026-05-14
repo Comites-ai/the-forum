@@ -6,6 +6,15 @@ from typing import Optional
 
 from fastapi import Request
 
+
+class AdminAuthRequired(Exception):
+    """Raised by require_admin_user when the request is not authenticated.
+
+    Handled by a global exception handler registered in create_app() that
+    issues a 303 redirect to /admin/login — keeping unauthenticated browser
+    GETs out of FastAPI's default JSON error response.
+    """
+
 from app.services.message_processor_v2 import MessageProcessorV2
 from app.services.firestore_service import FirestoreService
 from app.services.vertex_ai_service import VertexAIService
@@ -14,6 +23,9 @@ from app.services.identity_service import IdentityService
 from app.services.scheduled_job_service import ScheduledJobService
 from app.services.scheduled_job_executor_v2 import ScheduledJobExecutorV2
 from app.services.gcs_service import GCSService
+from app.services.admin_auth_service import AdminAuthService
+from app.services.admin_logging_service import AdminLoggingService
+from app.services.admin_vertex_service import AdminVertexService
 
 
 def get_gcs_service(request: Request) -> Optional[GCSService]:
@@ -111,6 +123,42 @@ def get_message_processor_v2(request: Request) -> MessageProcessorV2:
         identity=identity,
         gcs=getattr(request.app.state, "gcs", None),
     )
+
+
+def get_admin_auth_service(request: Request) -> AdminAuthService:
+    """Get the AdminAuthService from app.state (admin UI only)."""
+    return request.app.state.admin_auth
+
+
+def get_admin_logging_service(request: Request) -> AdminLoggingService:
+    """Get the AdminLoggingService from app.state (admin UI only)."""
+    return request.app.state.admin_logging
+
+
+def get_admin_vertex_service(request: Request) -> AdminVertexService:
+    """Get the AdminVertexService from app.state (admin UI only)."""
+    return request.app.state.admin_vertex
+
+
+def require_admin_user(request: Request) -> str:
+    """
+    FastAPI dependency that enforces an authenticated, IAM-verified admin.
+
+    Returns the operator's email on success. Raises a 303 redirect to
+    /admin/login when the request is not authenticated, so unauthenticated
+    browser GETs land cleanly on the login page rather than seeing JSON
+    error bodies.
+    """
+    session = request.scope.get("session") or {}
+    if not session.get("authorized") or not session.get("email"):
+        raise AdminAuthRequired()
+    return session["email"]
+
+
+def get_session_access_token(request: Request) -> Optional[str]:
+    """Return the OAuth access token stored in the admin session, if any."""
+    session = request.scope.get("session") or {}
+    return session.get("access_token")
 
 
 def get_scheduled_job_executor_v2(request: Request) -> ScheduledJobExecutorV2:
