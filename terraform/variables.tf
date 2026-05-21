@@ -82,16 +82,13 @@ variable "use_discord" {
   default     = false
 }
 
-# NOTE: discord_bot_token_value has been removed. Terraform no longer
-# manages the secret value — only the container. Populate the value with:
-#   echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add discord-bot-token \
-#     --data-file=- --project=YOUR_PROJECT_ID
-
-variable "discord_agent_id" {
-  description = "Firestore agent document ID this Discord worker forwards events to. Required when use_discord is true. The worker POSTs to /api/v1/discord/events/{discord_agent_id}."
-  type        = string
-  default     = ""
-}
+# NOTE: discord_bot_token_value and discord_agent_id have been removed.
+# The worker is now multi-tenant: it discovers Discord-enabled agents from
+# Firestore at runtime and reads each agent's bot token from that agent's
+# OWN GCP project via Secret Manager. Per-agent terraform (the
+# agent-project template) is responsible for creating each agent's
+# `discord-bot-token` secret and granting the Forum's discord-worker SA
+# cross-project secretAccessor.
 
 variable "discord_worker_image" {
   description = "Container image for the discord-worker VM. Build with `gcloud builds submit discord-worker --tag=...` and pass the resulting image URL here. Required when use_discord is true."

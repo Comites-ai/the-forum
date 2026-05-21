@@ -228,7 +228,53 @@ resource "google_storage_bucket" "staging" {
 #   --data-file=- --project=${var.project_id}
 
 # ==============================================================================
-# SECTION 5: SCHEDULER MCP KEY (Uncomment to use the middleware's scheduler MCP)
+# SECTION 5: DISCORD-SPECIFIC INFRASTRUCTURE
+# Uncomment this section if your agent uses Discord.
+#
+# Unlike Slack/Telegram, Discord requires a long-lived Gateway WebSocket
+# rather than an HTTP webhook. The middleware runs a SINGLE multi-tenant
+# discord-worker VM in its own project (see middleware's terraform/discord_worker.tf
+# when var.use_discord = true). That worker auto-discovers Discord-enabled
+# agents from Firestore at runtime — so to onboard a new Discord agent
+# you just need to:
+#   1. Provision this section (secret container in your agent project)
+#   2. Add a discord platform block to the agent's Firestore doc
+#   3. Wait up to AGENT_REFRESH_INTERVAL_SECONDS (default 300s) for the
+#      worker to pick up the new bot, or reset the VM to force it
+# No terraform changes on the middleware side are needed.
+# ==============================================================================
+
+# # Discord Bot Token Secret
+# resource "google_secret_manager_secret" "discord_bot_token" {
+#   project   = google_project.agent_project.project_id
+#   secret_id = "${var.bot_account_id}-discord-token"
+#
+#   replication {
+#     auto {}
+#   }
+#
+#   depends_on = [
+#     google_project_service.secretmanager
+#   ]
+# }
+
+# Note: The Discord bot token must be added manually after terraform apply:
+# echo -n "YOUR_DISCORD_BOT_TOKEN" | gcloud secrets versions add ${var.bot_account_id}-discord-token \
+#   --data-file=- --project=${var.project_id}
+
+# # Grant the middleware's discord-worker SA cross-project read access to
+# # the bot token. This is the SA on the middleware's e2-micro VM that
+# # holds the Discord Gateway connections. It is NOT the same SA used by
+# # the Forum's Cloud Run service (which is the default compute SA).
+# resource "google_secret_manager_secret_iam_member" "discord_token_worker_accessor" {
+#   project   = google_project.agent_project.project_id
+#   secret_id = google_secret_manager_secret.discord_bot_token.secret_id
+#   role      = "roles/secretmanager.secretAccessor"
+#   member    = "serviceAccount:discord-worker@${var.middleware_project_id}.iam.gserviceaccount.com"
+# }
+
+# ==============================================================================
+# SECTION 6: SCHEDULER MCP KEY (Uncomment to use the middleware's scheduler MCP)
 # Provisions the secret container that holds your agent's scheduler MCP API
 # key, plus an IAM binding so the agent's Reasoning Engine SA can read it at
 # runtime to send in the X-API-Key header. You still run the provision script

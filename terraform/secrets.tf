@@ -37,26 +37,13 @@ resource "google_secret_manager_secret" "slack_signing_secret" {
 # manually and granted access to the middleware's Cloud Run service account.
 # See docs/FOR_AGENT_DEVELOPERS.md for instructions.
 
-# -----------------------------------------------------------------------------
-# Discord bot token container (created only when var.use_discord is true)
-#
-# Holds the Discord bot token from the Developer Portal. The discord-worker
-# VM's service account is granted secretAccessor on this secret in
-# terraform/discord_worker.tf; the Forum's Cloud Run service does NOT read
-# this secret (the worker is the only thing that talks to Discord directly).
-# -----------------------------------------------------------------------------
-resource "google_secret_manager_secret" "discord_bot_token" {
-  count     = var.use_discord ? 1 : 0
-  secret_id = "discord-bot-token"
-
-  replication {
-    auto {}
-  }
-
-  depends_on = [
-    google_project_service.secretmanager
-  ]
-}
+# Note: Discord bot tokens are NOT managed here. Each Discord-enabled
+# agent creates its OWN `discord-bot-token` secret in its OWN GCP project
+# via the agent-project terraform template, and grants the Forum's
+# `discord-worker` service account cross-project secretAccessor. The
+# multi-tenant worker reads each agent's token at runtime via Secret
+# Manager using the project_id + secret_name carried on the agent's
+# Firestore document.
 
 # -----------------------------------------------------------------------------
 # Admin UI secret containers (created only when enable_admin_ui is true)

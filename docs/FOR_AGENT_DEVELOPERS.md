@@ -847,26 +847,41 @@ your-agent-repo/
 Discord is different from Slack, Google Chat, and Telegram in one
 important way: it does **not** deliver direct messages to HTTP webhooks.
 DMs only arrive over a long-lived WebSocket (the "Gateway"). The Forum
-therefore deploys a small companion service — the
-[discord-worker](../discord-worker/) — on a Compute Engine VM that holds
-the Gateway connection open and forwards each DM to the Forum's
-`/api/v1/discord/events/{agent_id}` endpoint.
+deploys a SINGLE multi-tenant companion service — the
+[discord-worker](../discord-worker/) — on one Compute Engine VM in the
+Forum's project. That worker holds one Gateway connection per
+Discord-enabled agent in a single Python process, and forwards each DM
+to the Forum's `/api/v1/discord/events/{agent_id}` endpoint.
 
-**Cost note.** The worker runs on an `e2-micro` VM. In `us-central1`,
-`us-west1`, or `us-east1` this is included in GCP's Always Free tier
-(one VM per billing account). If your free-tier slot is already in use,
-expect about $6–7/month for the VM. See
+**Onboarding a Discord agent does NOT require any terraform change on
+the Forum side.** Once the worker is running, the worker discovers
+agents from Firestore — adding a new Discord agent is just creating a
+bot, putting its token in your agent's project, and adding a Firestore
+block. The Forum-side worker auto-picks it up within a few minutes.
+
+**Cost note.** The single worker VM is an `e2-micro` and serves all
+your Discord agents. In `us-central1`, `us-west1`, or `us-east1` this
+is included in GCP's Always Free tier (one VM per billing account); if
+your free-tier slot is already in use, the cost is ~$6–7/month total
+regardless of how many Discord agents the worker serves. See
 [docs/DISCORD_WORKER.md](DISCORD_WORKER.md) for full cost detail and
-patching responsibilities — you own the worker container image and need
-to rebuild it periodically.
+patching responsibilities — you own the worker container image and
+need to rebuild it periodically.
 
 ### Prerequisites
 
-- A Discord application and bot in the [Developer Portal](https://discord.com/developers/applications)
-- The bot's token (Bot → Reset Token)
+- The Forum's `discord-worker` VM running. If you're the first to
+  deploy a Discord agent, follow the worker bring-up in
+  [docs/DISCORD_WORKER.md](DISCORD_WORKER.md) once (the Forum operator
+  may already have done this — ask).
+- The `discord-worker` service account email from the Forum's
+  terraform — run `terraform output -raw discord_worker_service_account`
+  in the Forum's `terraform/` directory.
+- A Discord application and bot in the [Developer Portal](https://discord.com/developers/applications).
 - **Message Content Intent** and **Direct Messages Intent** enabled on
-  the bot (Bot → Privileged Gateway Intents)
-- An Agent project provisioned to host the Discord bot token secret
+  the bot (Bot → Privileged Gateway Intents).
+- Your agent's GCP project provisioned via the agent-project terraform
+  template.
 
 ### Step 1: Create the Discord Application and Bot
 
@@ -878,72 +893,27 @@ to rebuild it periodically.
 4. **Save** the application ID (under **General Information**) — you'll
    put it on the agent's Firestore document for traceability.
 
-### Step 2: Store the Bot Token in Secret Manager
+### Step 2: Provision the Bot Token Secret in YOUR Agent's Project
+
+Uncomment SECTION 5: DISCORD in your agent's
+`docs/terraform-templates/agent-project/main.tf` and `terraform apply`.
+This creates the secret container and grants the Forum's worker
+service account cross-project `secretAccessor` on it.
+
+Then populate the token in your agent's project:
 
 ```bash
-gcloud secrets create discord-bot-token \
-  --project="${PROJECT_ID}" \
-  --replication-policy=automatic
-
-echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add discord-bot-token \
-  --project="${PROJECT_ID}" \
-  --data-file=-
-
-# Grant the discord-worker service account access. Terraform creates this
-# SA when use_discord = true.
-gcloud secrets add-iam-policy-binding discord-bot-token \
-  --project="${PROJECT_ID}" \
-  --member="serviceAccount:discord-worker@${PROJECT_ID}.iam.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor"
+echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add \
+  ${BOT_ACCOUNT_ID}-discord-token \
+  --data-file=- --project="${AGENT_PROJECT_ID}"
 ```
 
-### Step 3: Build and Push the Worker Container
+### Step 3: Register the Agent with The Forum
 
-From the repository root:
-
-```bash
-gcloud builds submit discord-worker \
-  --project="${PROJECT_ID}" \
-  --tag="us-central1-docker.pkg.dev/${PROJECT_ID}/discord-worker/worker:latest"
-```
-
-### Step 4: Provision the Worker VM with Terraform
-
-In your `terraform.tfvars`:
-
-```hcl
-use_discord                 = true
-discord_agent_id            = "your-agent-firestore-doc-id"
-discord_worker_image        = "us-central1-docker.pkg.dev/your-project/discord-worker/worker:latest"
-discord_worker_zone         = "us-central1-a"
-```
-
-Run `terraform apply`. Terraform creates the `discord-bot-token`
-secret container, the worker VM, the IAM bindings, etc. — but
-**not the secret value**. After apply, populate the token:
-
-```bash
-echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add discord-bot-token \
-  --data-file=- --project="${PROJECT_ID}"
-```
-
-Then reset the VM so it re-reads the secret on next boot:
-
-```bash
-gcloud compute instances reset discord-worker \
-  --zone=us-central1-a --project="${PROJECT_ID}"
-```
-
-Terraform outputs `discord_worker_service_account` and
-`discord_setup_instructions` — write down the SA email, you'll need it
-in Step 5.
-
-### Step 5: Register the Agent with The Forum
-
-Add a Discord platform entry to the agent's Firestore document. The
-`discord_worker_service_account` field must match the SA email from
-terraform output exactly — the Forum uses it to authorize incoming
-events from the worker.
+Add a Discord platform entry to the agent's Firestore document
+(`agents/{agent_id}` in the Forum's project). The
+`discord_worker_service_account` field must match the Forum's worker SA
+email **exactly** — the Forum uses it to authorize incoming events:
 
 ```json
 {
@@ -951,35 +921,47 @@ events from the worker.
     {
       "platform": "discord",
       "enabled": true,
-      "discord_bot_token_secret": "discord-bot-token",
-      "discord_bot_token_project_id": "your-project-id",
-      "discord_application_id": "your-discord-app-id",
-      "discord_worker_service_account": "discord-worker@your-project-id.iam.gserviceaccount.com"
+      "discord_bot_token_secret": "<bot_account_id>-discord-token",
+      "discord_bot_token_project_id": "<your-agent-project-id>",
+      "discord_application_id": "<your-discord-app-id>",
+      "discord_worker_service_account": "discord-worker@<forum-project>.iam.gserviceaccount.com"
     }
   ]
 }
 ```
 
-### Step 6: Invite the Bot and Test
+### Step 4: Wait for the Worker to Pick Up the New Agent
+
+The worker reconciles its bot list from Firestore every
+`AGENT_REFRESH_INTERVAL_SECONDS` (default 300s). Within 5 minutes it
+will open a Gateway connection for your new bot. To force an
+immediate reconcile:
+
+```bash
+gcloud compute instances reset discord-worker \
+  --zone="${DISCORD_WORKER_ZONE}" --project="${FORUM_PROJECT_ID}"
+```
+
+### Step 5: Invite the Bot and Test
 
 1. In the Developer Portal → **OAuth2** → **URL Generator**:
    - Scopes: `bot`
    - Bot permissions: `Send Messages`, `Read Message History`
 2. Open the generated URL, pick a server you control, and authorize.
 3. Open a DM with the bot and send a message.
-4. Watch the worker logs:
+4. Watch the worker logs (in the **Forum's** project, not the agent's):
    ```bash
    gcloud logging read \
      'resource.type="gce_instance" AND jsonPayload.message:"Forwarded DM"' \
-     --limit=20 --project="${PROJECT_ID}"
+     --limit=20 --project="${FORUM_PROJECT_ID}"
    ```
 5. Watch the Forum logs for the corresponding event:
    ```bash
    gcloud run services logs read the-forum \
-     --project="${PROJECT_ID}" --limit=50 | grep "Discord"
+     --project="${FORUM_PROJECT_ID}" --limit=50 | grep "Discord"
    ```
 
-### Step 7: Link Your Discord Identity (Optional)
+### Step 6: Link Your Discord Identity (Optional)
 
 If you already have an account on another platform with the same Forum,
 link your Discord user ID so conversations stay in one session:
@@ -1001,15 +983,20 @@ python scripts/link_identities.py \
 - **No email from the platform.** Discord does not expose user email to
   bots. Auto-linking by email does not work for Discord users; use
   `scripts/link_identities.py` explicitly.
-- **You own the worker container.** COS auto-patches the host OS but the
-  Python image is pinned. See [DISCORD_WORKER.md](DISCORD_WORKER.md) for
-  the rebuild cadence.
+- **One worker process for ALL Discord agents.** The Forum runs a single
+  multi-tenant worker; new agents are discovered from Firestore at
+  runtime. Onboarding doesn't require terraform changes on the Forum
+  side — only in the agent's project (the secret container + IAM grant).
+- **Forum operator owns the worker image.** COS auto-patches the host
+  OS but the Python image is pinned. See
+  [DISCORD_WORKER.md](DISCORD_WORKER.md) for the rebuild cadence.
 
 ### Documentation
 
-Keep a copy of your terraform configuration and the worker image build
-recipe in your agent repo, alongside the corresponding Slack/Telegram
-sections.
+Keep a copy of your agent-project terraform configuration in your agent
+repo, alongside the corresponding Slack/Telegram sections. The Forum-side
+worker is shared infrastructure; nothing specific to your agent lives
+there.
 
 ---
 
