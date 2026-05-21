@@ -29,6 +29,22 @@
 #   bot gets its own /api/v1/telegram/events/{agent_id} webhook URL.
 # =============================================================================
 
+# Artifact Registry repo that holds the worker container image. Cloud
+# Build pushes here when you run
+#   gcloud builds submit discord-worker --tag=us-central1-docker.pkg.dev/<project>/discord-worker/worker:latest
+# and the VM pulls from here at boot. Kept separate from
+# cloud-run-source-deploy (which holds the Forum image) so the two have
+# independent lifecycles and access policies.
+resource "google_artifact_registry_repository" "discord_worker" {
+  count         = var.use_discord ? 1 : 0
+  location      = var.region
+  repository_id = "discord-worker"
+  format        = "DOCKER"
+  description   = "Container images for the Discord Gateway worker VM"
+
+  depends_on = [google_project_service.artifactregistry[0]]
+}
+
 # Dedicated service account for the worker VM. The Forum's
 # /api/v1/discord/events/{agent_id} handler verifies the OIDC token the
 # worker presents and matches its email against the agent's
@@ -40,7 +56,7 @@ resource "google_service_account" "discord_worker" {
   display_name = "Discord Gateway Worker"
   description  = "Holds the Discord Gateway WebSocket and forwards DMs to the Forum."
 
-  depends_on = [google_project_service.compute]
+  depends_on = [google_project_service.compute[0]]
 }
 
 # The worker reads the bot token from Secret Manager at startup.
@@ -49,6 +65,17 @@ resource "google_secret_manager_secret_iam_member" "discord_worker_token" {
   secret_id = google_secret_manager_secret.discord_bot_token[0].id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.discord_worker[0].email}"
+}
+
+# The VM pulls the worker container image from this Artifact Registry repo
+# at boot. COS uses the attached service account for the pull.
+resource "google_artifact_registry_repository_iam_member" "discord_worker_reader" {
+  count      = var.use_discord ? 1 : 0
+  project    = var.project_id
+  location   = google_artifact_registry_repository.discord_worker[0].location
+  repository = google_artifact_registry_repository.discord_worker[0].name
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${google_service_account.discord_worker[0].email}"
 }
 
 # The worker calls Cloud Run with an OIDC bearer token. The Cloud Run
@@ -169,8 +196,8 @@ resource "google_compute_instance" "discord_worker" {
   }
 
   depends_on = [
-    google_project_service.compute,
-    google_secret_manager_secret_version.discord_bot_token,
-    google_secret_manager_secret_iam_member.discord_worker_token,
+    google_project_service.compute[0],
+    google_secret_manager_secret_version.discord_bot_token[0],
+    google_secret_manager_secret_iam_member.discord_worker_token[0],
   ]
 }

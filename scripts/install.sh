@@ -188,22 +188,68 @@ phase_5_migration() {
 phase_6_platforms() {
     say "Phase 6: Platforms"
     echo "Which messaging platforms will you use? Space-separated."
-    echo "Options: ${BOLD}slack${NC} ${BOLD}gchat${NC} (Google Chat) ${BOLD}telegram${NC}"
+    echo "Options: ${BOLD}slack${NC} ${BOLD}gchat${NC} (Google Chat) ${BOLD}telegram${NC} ${BOLD}discord${NC}"
+    echo
+    echo "${BOLD}Note on discord:${NC} Discord cannot deliver DMs to HTTP webhooks, so"
+    echo "selecting it provisions an additional e2-micro Compute Engine VM (the"
+    echo "discord-worker). That VM is FREE in the GCP Always Free tier in"
+    echo "us-central1, us-west1, or us-east1 (one per billing account), but"
+    echo "costs ~\$6-7/month if your free-tier slot is already in use or you"
+    echo "deploy outside those regions. See docs/DISCORD_WORKER.md for cost"
+    echo "and patching detail. Selecting discord also requires a Firestore"
+    echo "agent ID for the worker to route messages to — if you don't have"
+    echo "one yet, leave discord out and add it later."
+    echo
     read -rp "Platforms: " platforms_input
     USE_SLACK=false
     USE_GCHAT=false
     USE_TELEGRAM=false
+    USE_DISCORD=false
     for p in $platforms_input; do
         case "$p" in
             slack)    USE_SLACK=true ;;
             gchat)    USE_GCHAT=true ;;
             telegram) USE_TELEGRAM=true ;;
+            discord)  USE_DISCORD=true ;;
             *) warn "Unknown platform: $p (ignored)" ;;
         esac
     done
-    if [[ "$USE_SLACK" == "false" && "$USE_GCHAT" == "false" && "$USE_TELEGRAM" == "false" ]]; then
+    if [[ "$USE_SLACK" == "false" && "$USE_GCHAT" == "false" && "$USE_TELEGRAM" == "false" && "$USE_DISCORD" == "false" ]]; then
         warn "No platforms selected. The Forum will install but you'll need to wire one up later."
     fi
+
+    # Discord requires extra prompts up-front because terraform preconditions
+    # validate them at plan time. We collect the agent ID and zone here; the
+    # bot token value is collected later (Phase 9), mirroring the Slack flow.
+    DISCORD_AGENT_ID=""
+    DISCORD_WORKER_ZONE=""
+    DISCORD_WORKER_IMAGE=""
+    if [[ "$USE_DISCORD" == "true" ]]; then
+        echo
+        say "Discord prerequisites"
+        echo "Enter the Firestore agent document ID this discord-worker will"
+        echo "forward DMs to. If you don't have one yet, re-run install without"
+        echo "discord selected; you can add Discord later via a follow-up"
+        echo "terraform apply once an agent doc exists."
+        read -rp "  Discord agent ID: " DISCORD_AGENT_ID
+        if [[ -z "$DISCORD_AGENT_ID" ]]; then
+            err "  No agent ID provided — cannot continue with discord enabled."
+            exit 1
+        fi
+
+        echo
+        echo "Worker VM zone. Pick a zone in us-central1, us-west1, or us-east1"
+        echo "to stay in the GCP Always Free tier. Default: us-central1-a"
+        read -rp "  Worker zone [us-central1-a]: " DISCORD_WORKER_ZONE
+        DISCORD_WORKER_ZONE="${DISCORD_WORKER_ZONE:-us-central1-a}"
+        # The image is auto-computed from project_id and a stable repo/tag.
+        # Terraform creates the Artifact Registry repo as part of the same
+        # apply; phase_13 prints the gcloud builds submit command to populate
+        # the image, since the VM pulls it on next reboot.
+        DISCORD_WORKER_IMAGE="us-central1-docker.pkg.dev/${PROJECT_ID}/discord-worker/worker:latest"
+        ok "  Will use worker image: $DISCORD_WORKER_IMAGE"
+    fi
+
     ok "Selected: ${platforms_input:-(none)}"
     hr
 }
@@ -249,7 +295,19 @@ project_id  = "$PROJECT_ID"
 region      = "$REGION"
 environment = "production"
 use_slack   = $USE_SLACK
+use_discord = $USE_DISCORD
 EOF
+    if [[ "$USE_DISCORD" == "true" ]]; then
+        cat >> "$path" <<EOF
+
+# Discord-specific vars. The worker image will be empty in the registry
+# until you run \`gcloud builds submit discord-worker --tag=\$discord_worker_image\`
+# (see phase 13 of install.sh's manual-steps output, or docs/DISCORD_WORKER.md).
+discord_agent_id            = "$DISCORD_AGENT_ID"
+discord_worker_image        = "$DISCORD_WORKER_IMAGE"
+discord_worker_zone         = "$DISCORD_WORKER_ZONE"
+EOF
+    fi
     ok "Wrote $path"
 }
 
@@ -393,6 +451,37 @@ EOF
     ok "  Slack signing secret value collected (will be passed to terraform via TF_VAR)."
 }
 
+# Collect the Discord bot token value before terraform apply.
+# Sets TF_VAR_discord_bot_token_value for terraform to consume. The token is
+# stored in Secret Manager (discord-bot-token); the discord-worker VM reads
+# it at startup via its service account.
+collect_discord_token_value() {
+    cat <<EOF
+
+  ${BOLD}How to get the Discord bot token:${NC}
+    1. Open https://discord.com/developers/applications
+    2. Click your application (or 'New Application' to create one)
+    3. Go to 'Bot' in the left sidebar
+    4. Under 'Privileged Gateway Intents', enable:
+         - MESSAGE CONTENT INTENT
+         - DIRECT MESSAGES INTENT
+    5. Click 'Reset Token' and copy the value shown.
+       (Resetting invalidates the previous token immediately.)
+
+EOF
+    read -rsp "  Discord bot token: " secret_value
+    echo
+
+    if [[ -z "$secret_value" ]]; then
+        err "  Empty token. Discord support requires a non-empty value."
+        echo "  Either re-run install without discord selected, or paste a real token."
+        exit 1
+    fi
+
+    export TF_VAR_discord_bot_token_value="$secret_value"
+    ok "  Discord bot token collected (will be passed to terraform via TF_VAR)."
+}
+
 # --- Phase 9: terraform apply ---
 phase_9_apply() {
     say "Phase 9: terraform plan + apply"
@@ -403,15 +492,23 @@ phase_9_apply() {
         echo
     fi
 
+    if [[ "$USE_DISCORD" == "true" ]]; then
+        say "Phase 9 needs the Discord bot token before terraform plan/apply."
+        collect_discord_token_value
+        echo
+    fi
+
     (cd "$REPO_ROOT/terraform" && terraform plan)
     echo
     if ! prompt_yn "Apply this plan?" y; then
         echo "Aborted before apply."
         unset TF_VAR_slack_signing_secret_value
+        unset TF_VAR_discord_bot_token_value
         exit 0
     fi
     (cd "$REPO_ROOT/terraform" && terraform apply -auto-approve)
     unset TF_VAR_slack_signing_secret_value
+    unset TF_VAR_discord_bot_token_value
     ok "Terraform apply complete."
     hr
 }
@@ -517,7 +614,53 @@ ${BOLD}[ ] TELEGRAM (per agent)${NC}
 EOF
     fi
 
-    if [[ "$USE_SLACK" == "false" && "$USE_GCHAT" == "false" && "$USE_TELEGRAM" == "false" ]]; then
+    if [[ "$USE_DISCORD" == "true" ]]; then
+        local worker_sa
+        worker_sa=$(cd "$REPO_ROOT/terraform" && terraform output -raw discord_worker_service_account 2>/dev/null || echo "<discord-worker-sa>")
+        cat <<EOF
+${BOLD}[ ] DISCORD${NC}
+    Terraform has provisioned: the discord-bot-token secret, an Artifact
+    Registry repo (discord-worker), the worker service account, and the
+    e2-micro VM. The VM is running but its container is failing to start
+    because the worker image has not been built yet. Finish with:
+
+    1. Build and push the worker container image:
+         gcloud builds submit "$REPO_ROOT/discord-worker" \\
+           --tag="$DISCORD_WORKER_IMAGE" \\
+           --project=$PROJECT_ID
+
+    2. Reboot the VM so it pulls the freshly-built image:
+         gcloud compute instances reset discord-worker \\
+           --zone=$DISCORD_WORKER_ZONE \\
+           --project=$PROJECT_ID
+
+    3. Add a discord platform block to agent ${BOLD}$DISCORD_AGENT_ID${NC} in
+       Firestore. The discord_worker_service_account field must match
+       the worker's SA exactly:
+         {
+           "platform": "discord",
+           "enabled": true,
+           "discord_bot_token_secret": "discord-bot-token",
+           "discord_bot_token_project_id": "$PROJECT_ID",
+           "discord_worker_service_account": "$worker_sa"
+         }
+
+    4. In the Discord Developer Portal, generate an OAuth2 invite URL
+       (scopes: bot; permissions: Send Messages, Read Message History)
+       and invite the bot to a server you control. Then DM it.
+
+    5. Watch the worker logs to confirm forwarding:
+         gcloud logging read \\
+           'resource.type="gce_instance" AND jsonPayload.message:"Forwarded DM"' \\
+           --limit=20 --project=$PROJECT_ID
+
+    Full runbook (cost, patching cadence, redeploy steps):
+       docs/DISCORD_WORKER.md
+
+EOF
+    fi
+
+    if [[ "$USE_SLACK" == "false" && "$USE_GCHAT" == "false" && "$USE_TELEGRAM" == "false" && "$USE_DISCORD" == "false" ]]; then
         echo "  No platforms selected. When you're ready, see docs/FOR_AGENT_DEVELOPERS.md."
         echo
     fi

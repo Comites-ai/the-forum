@@ -50,9 +50,20 @@ resource "google_project_service" "logging" {
   disable_on_destroy = false
 }
 
-# Required for the discord-worker VM. Enabled unconditionally because it's
-# free and several other infrastructure features may want to depend on it.
+# Compute Engine API — needed only by the discord-worker VM. Gated on
+# var.use_discord so a default-config terraform apply does not enable
+# this API on projects that don't want it. API enablement itself is free
+# but is still a project-level mutation we shouldn't perform implicitly.
 resource "google_project_service" "compute" {
+  count              = var.use_discord ? 1 : 0
   service            = "compute.googleapis.com"
+  disable_on_destroy = false
+}
+
+# Artifact Registry API — needed only by the discord-worker container
+# image repo. Gated on var.use_discord for the same reason as compute.
+resource "google_project_service" "artifactregistry" {
+  count              = var.use_discord ? 1 : 0
+  service            = "artifactregistry.googleapis.com"
   disable_on_destroy = false
 }

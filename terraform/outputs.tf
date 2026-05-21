@@ -37,15 +37,19 @@ output "google_chat_webhook_url" {
 
 output "discord_worker_service_account" {
   description = "Email of the discord-worker VM service account. Set this as discord_worker_service_account on the agent's Firestore document so the Forum will accept events forwarded by this worker. Only meaningful when use_discord is true."
-  value       = var.use_discord ? google_service_account.discord_worker[0].email : ""
+  # try() guards the [0] index against count=0; never errors when use_discord=false.
+  value       = try(google_service_account.discord_worker[0].email, "")
 }
 
 output "discord_worker_vm_name" {
   description = "Compute Engine VM name for the discord-worker (when use_discord is true)."
-  value       = var.use_discord ? google_compute_instance.discord_worker[0].name : ""
+  value       = try(google_compute_instance.discord_worker[0].name, "")
 }
 
 locals {
+  # When use_discord=false this local evaluates to "". The format() call is
+  # only reached when use_discord=true, but we still wrap the [0] reads in
+  # try() as belt-and-braces against terraform's eager evaluation rules.
   discord_setup_instructions_text = var.use_discord ? format(
     <<-EOT
 
@@ -96,13 +100,13 @@ locals {
     ,
     google_cloud_run_v2_service.forum.uri,
     var.discord_agent_id,
-    google_compute_instance.discord_worker[0].name,
+    try(google_compute_instance.discord_worker[0].name, ""),
     var.discord_worker_zone,
     var.discord_worker_machine_type,
     var.discord_worker_image,
     var.project_id,
     var.project_id,
-    google_service_account.discord_worker[0].email,
+    try(google_service_account.discord_worker[0].email, ""),
   ) : ""
 }
 
