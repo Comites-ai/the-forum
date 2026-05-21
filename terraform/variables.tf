@@ -47,12 +47,11 @@ variable "use_slack" {
   default     = true
 }
 
-variable "slack_signing_secret_value" {
-  description = "Value to populate slack-signing-secret with (one Slack signing secret, or comma-separated list for multiple Slack apps). Required when use_slack is true. Pass via TF_VAR_slack_signing_secret_value rather than terraform.tfvars to keep it out of disk plaintext. Stored in terraform state."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
+# NOTE: slack_signing_secret_value has been removed. Terraform no longer
+# manages the secret value — only the container. Populate the value with:
+#   echo -n "YOUR_VALUE" | gcloud secrets versions add slack-signing-secret \
+#     --data-file=- --project=YOUR_PROJECT_ID
+# scripts/install.sh does this automatically on fresh installs.
 
 # -----------------------------------------------------------------------------
 # Discord
@@ -83,12 +82,10 @@ variable "use_discord" {
   default     = false
 }
 
-variable "discord_bot_token_value" {
-  description = "Value of the Discord bot token (from Discord Developer Portal → Bot → Reset Token). Required when use_discord is true. Pass via TF_VAR_discord_bot_token_value to keep it out of disk plaintext. Stored in terraform state."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
+# NOTE: discord_bot_token_value has been removed. Terraform no longer
+# manages the secret value — only the container. Populate the value with:
+#   echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add discord-bot-token \
+#     --data-file=- --project=YOUR_PROJECT_ID
 
 variable "discord_agent_id" {
   description = "Firestore agent document ID this Discord worker forwards events to. Required when use_discord is true. The worker POSTs to /api/v1/discord/events/{discord_agent_id}."
@@ -124,26 +121,16 @@ variable "enable_admin_ui" {
   default     = false
 }
 
-variable "oauth_client_id_value" {
-  description = "OAuth 2.0 Web Client ID for the admin UI. Create one in GCP Console → APIs & Services → Credentials. Required when enable_admin_ui is true. Pass via TF_VAR_oauth_client_id_value."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-variable "oauth_client_secret_value" {
-  description = "OAuth 2.0 Web Client secret for the admin UI. Required when enable_admin_ui is true. Pass via TF_VAR_oauth_client_secret_value."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-variable "admin_session_secret_value" {
-  description = "Random secret used to sign the admin session cookie. Required when enable_admin_ui is true. Generate with `openssl rand -hex 32` and pass via TF_VAR_admin_session_secret_value."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
+# NOTE: oauth_client_id_value, oauth_client_secret_value, and
+# admin_session_secret_value have been removed. Terraform no longer manages
+# admin UI secret values — only the containers. Populate via:
+#   echo -n "YOUR_OAUTH_CLIENT_ID" | gcloud secrets versions add oauth-client-id \
+#     --data-file=- --project=YOUR_PROJECT_ID
+#   echo -n "YOUR_OAUTH_CLIENT_SECRET" | gcloud secrets versions add oauth-client-secret \
+#     --data-file=- --project=YOUR_PROJECT_ID
+#   openssl rand -hex 32 | gcloud secrets versions add admin-session-secret \
+#     --data-file=- --project=YOUR_PROJECT_ID
+# scripts/install.sh does this automatically on fresh installs.
 
 variable "admin_required_role" {
   description = "IAM role the signed-in operator must hold on project_id to access the admin UI. Defaults to roles/owner. Inherited (folder/org) bindings are intentionally not honored — only direct project bindings."

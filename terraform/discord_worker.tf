@@ -182,10 +182,6 @@ resource "google_compute_instance" "discord_worker" {
 
   lifecycle {
     precondition {
-      condition     = length(var.discord_bot_token_value) > 0
-      error_message = "When use_discord is true, discord_bot_token_value must be non-empty. Pass via TF_VAR_discord_bot_token_value."
-    }
-    precondition {
       condition     = length(var.discord_agent_id) > 0
       error_message = "When use_discord is true, discord_agent_id must be set to the Firestore agent document ID the worker will forward events to."
     }
@@ -193,11 +189,16 @@ resource "google_compute_instance" "discord_worker" {
       condition     = length(var.discord_worker_image) > 0
       error_message = "When use_discord is true, discord_worker_image must be set. Build the image with `gcloud builds submit discord-worker --tag=...` and pass the resulting URL."
     }
+    # Note: we do NOT precondition on the bot token's secret VALUE — terraform
+    # no longer owns the value. If the secret is empty at boot, the worker
+    # will fetch it, fail to log into Discord, and crash-loop until you run
+    # `gcloud secrets versions add discord-bot-token --data-file=-` to
+    # populate it. See docs/DISCORD_WORKER.md.
   }
 
   depends_on = [
     google_project_service.compute[0],
-    google_secret_manager_secret_version.discord_bot_token[0],
+    google_secret_manager_secret.discord_bot_token[0],
     google_secret_manager_secret_iam_member.discord_worker_token[0],
   ]
 }

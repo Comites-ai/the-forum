@@ -11,7 +11,7 @@ For most users, [`../scripts/install.sh`](../scripts/install.sh) is the easiest 
 - **Service Accounts**:
   - `scheduler-sa` (Cloud Scheduler invoker)
   - IAM bindings on the default compute SA (Firestore, Vertex AI, Cloud Run, Logging, Cloud Storage, Service Account User, Artifact Registry writer)
-- **Secret Manager**: `slack-signing-secret` container — only when `var.use_slack = true` (default). The value itself must be added manually after apply (see Post-Deployment Steps). When `var.enable_admin_ui = true`, three additional secrets are created — `oauth-client-id`, `oauth-client-secret`, `admin-session-secret` — populated from `TF_VAR_oauth_client_id_value`, `TF_VAR_oauth_client_secret_value`, and `TF_VAR_admin_session_secret_value`.
+- **Secret Manager**: terraform creates only the secret *containers* (and their IAM bindings); secret values are populated out-of-band via `gcloud secrets versions add` and are never stored in terraform state. Containers created: `slack-signing-secret` when `var.use_slack = true`, `discord-bot-token` when `var.use_discord = true`, and `oauth-client-id` / `oauth-client-secret` / `admin-session-secret` when `var.enable_admin_ui = true`. See Post-Deployment Steps for population commands.
 - **GCS Buckets**:
   - `${PROJECT_ID}-slack-files` — temporary storage for uploaded Slack files (1-day lifecycle).
   - `${PROJECT_ID}-staging` — staging bucket for ADK Agent Engine deploys (7-day lifecycle, force_destroy=false).
@@ -60,7 +60,7 @@ use_slack   = true
 | `scheduler_job_name` | `scheduled-jobs-dispatcher` | Cloud Scheduler job name. |
 | `scheduler_cron_schedule` | `* * * * *` | Cron schedule for the scheduler job. |
 | `use_slack` | `true` | Whether to create the Slack signing secret container, its IAM binding, and the Cloud Run env binding. Set to `false` for non-Slack installs — `scripts/deploy_forum.sh` will auto-detect the absent secret and skip the Cloud Run binding. |
-| `slack_signing_secret_value` | `""` | The signing secret value to populate `slack-signing-secret` with. Required when `use_slack = true`. Sensitive — pass via `TF_VAR_slack_signing_secret_value` rather than storing in `terraform.tfvars` to avoid disk plaintext. The value lands in terraform state (private GCS bucket). `scripts/install.sh` collects this via prompt or migration-backup file and passes it through `TF_VAR` automatically. |
+| `use_discord` | `false` | Whether to provision the discord-worker e2-micro VM, the `discord-bot-token` secret container, and the worker's IAM bindings. See [../docs/DISCORD_WORKER.md](../docs/DISCORD_WORKER.md) for cost and patching notes. |
 
 ### 2. Authenticate with GCP
 
@@ -148,23 +148,37 @@ The outputs include:
 
 After `terraform apply` completes:
 
-### 1. Slack Signing Secret — handled at apply time
+### 1. Populate Secret Values
 
-When `use_slack = true`, terraform creates both the secret *container* and its initial *version* in a single apply, populating the value from `var.slack_signing_secret_value`. `scripts/install.sh` collects this via prompt (or migration backup) and passes it through `TF_VAR_slack_signing_secret_value` for you.
+Terraform creates the Secret Manager *containers* (e.g. `slack-signing-secret`, `discord-bot-token`, the three admin UI secrets) but does **not** manage their values. Values are populated out-of-band — they never enter terraform state.
 
-If you're running terraform manually:
+`scripts/install.sh` does this automatically (it prompts you and pipes the value through `gcloud secrets versions add`). If you're running terraform manually, populate each container yourself:
 
 ```bash
-# Single Slack app:
-TF_VAR_slack_signing_secret_value="YOUR_SLACK_SECRET" terraform apply
+# Slack — single app
+echo -n "YOUR_SLACK_SIGNING_SECRET" | gcloud secrets versions add slack-signing-secret \
+  --data-file=- --project="$PROJECT_ID"
 
-# Multiple Slack apps (one per bot, comma-separated):
-TF_VAR_slack_signing_secret_value="secret1,secret2,secret3" terraform apply
+# Slack — multiple apps, one signing secret per bot, comma-separated
+echo -n "secret1,secret2,secret3" | gcloud secrets versions add slack-signing-secret \
+  --data-file=- --project="$PROJECT_ID"
+
+# Discord
+echo -n "YOUR_DISCORD_BOT_TOKEN" | gcloud secrets versions add discord-bot-token \
+  --data-file=- --project="$PROJECT_ID"
+
+# Admin UI (only if enable_admin_ui = true)
+echo -n "$OAUTH_CLIENT_ID" | gcloud secrets versions add oauth-client-id \
+  --data-file=- --project="$PROJECT_ID"
+echo -n "$OAUTH_CLIENT_SECRET" | gcloud secrets versions add oauth-client-secret \
+  --data-file=- --project="$PROJECT_ID"
+openssl rand -hex 32 | gcloud secrets versions add admin-session-secret \
+  --data-file=- --project="$PROJECT_ID"
 ```
 
-To **rotate** later: re-apply with a new value, or run `gcloud secrets versions add slack-signing-secret --data-file=- --project=$PROJECT_ID` and Cloud Run will pick up the new version on its next revision.
+To **rotate** any of these later: just run `gcloud secrets versions add` again. Cloud Run binds env vars to `:latest`, so the new version takes effect on the next Cloud Run revision (i.e. next `scripts/deploy_forum.sh`).
 
-If you set `use_slack = false`, terraform won't create the secret and `scripts/deploy_forum.sh` will skip the Cloud Run binding automatically.
+If you set `use_slack = false`, terraform won't create the container and `scripts/deploy_forum.sh` will skip the Cloud Run binding automatically.
 
 ### 2. Configure Agent-Specific Infrastructure
 
@@ -183,14 +197,7 @@ This builds the image via Cloud Build and rolls it out, replacing the hello-worl
 
 ### 4. Admin UI (optional)
 
-To turn on the operator-facing admin UI at `/admin`, set `enable_admin_ui = true` and apply with the three OAuth-related TF_VARs populated:
-
-```bash
-TF_VAR_oauth_client_id_value="$CLIENT_ID" \
-TF_VAR_oauth_client_secret_value="$CLIENT_SECRET" \
-TF_VAR_admin_session_secret_value="$(openssl rand -hex 32)" \
-terraform apply
-```
+To turn on the operator-facing admin UI at `/admin`, set `enable_admin_ui = true` and `terraform apply`. Terraform creates the three secret containers (`oauth-client-id`, `oauth-client-secret`, `admin-session-secret`) but does not populate them. Populate them yourself (see step 1) or let `scripts/install.sh` handle it.
 
 After the apply completes, terraform outputs `admin_redirect_uri`. Register it on the OAuth client (GCP Console → APIs & Services → Credentials), then push it onto the Cloud Run service — this step can't be done from inside the same terraform apply because the Cloud Run URL is only known after the service is created:
 

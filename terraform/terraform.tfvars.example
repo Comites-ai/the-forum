@@ -32,7 +32,9 @@ environment = "prod"
 # discord_worker_zone = "us-central1-a"
 # discord_worker_machine_type = "e2-micro"
 #
-# Pass the bot token via TF_VAR_discord_bot_token_value rather than
-# committing it here — terraform.tfvars is checked into the local
-# install directory and the token belongs in state, not on disk:
-#   export TF_VAR_discord_bot_token_value="$(cat ~/.discord-bot-token)"
+# Terraform creates the discord-bot-token Secret Manager container; the
+# bot token value is NOT managed by terraform. Populate it once after
+# terraform apply with:
+#   echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add discord-bot-token \
+#     --data-file=- --project=YOUR_PROJECT_ID
+# scripts/install.sh does this automatically on fresh installs.

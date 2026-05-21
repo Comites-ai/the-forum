@@ -407,12 +407,46 @@ EOF
     hr
 }
 
-# Collect the Slack signing secret value before terraform apply.
-# Sets TF_VAR_slack_signing_secret_value for terraform to consume.
-# Cloud Run validates the bound secret has a version at creation time, so
-# the value must exist BEFORE terraform creates the Cloud Run service —
-# we pass it through terraform itself rather than populating after apply.
-collect_slack_secret_value() {
+# True iff `gcloud secrets describe` finds the secret in the project. We
+# need this to gate the `-target=` apply on phase 9a — pulling a secret
+# that doesn't yet exist into a targeted plan errors out.
+secret_exists() {
+    local name="$1"
+    gcloud secrets describe "$name" --project="$PROJECT_ID" >/dev/null 2>&1
+}
+
+# True iff the secret has at least one ENABLED version. We treat the
+# secret as "populated" when this returns true, so re-runs of install.sh
+# don't overwrite values the operator (or a prior install) already set.
+secret_has_version() {
+    local name="$1"
+    local count
+    count=$(gcloud secrets versions list "$name" \
+        --filter="state:ENABLED" --limit=1 --format="value(name)" \
+        --project="$PROJECT_ID" 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$count" -ge 1 ]]
+}
+
+# Add a new version to a Secret Manager secret. Value is supplied on stdin
+# so it never lands in the process listing.
+add_secret_version() {
+    local name="$1"
+    local value="$2"
+    printf '%s' "$value" | gcloud secrets versions add "$name" \
+        --data-file=- --project="$PROJECT_ID" >/dev/null
+}
+
+# Populate slack-signing-secret from operator input (or migration backup).
+# Idempotent: if the secret already has an enabled version, returns silently.
+# Cloud Run requires the secret to have a version at revision-create time;
+# phase 9 calls this BEFORE the full terraform apply for that reason.
+populate_slack_secret() {
+    local name="slack-signing-secret"
+    if secret_has_version "$name"; then
+        ok "  $name already has an enabled version — leaving it alone."
+        return 0
+    fi
+
     local backup="$MIGRATION_PATH/secrets/slack-signing-secret.value"
     local secret_value=""
 
@@ -447,15 +481,18 @@ EOF
         exit 1
     fi
 
-    export TF_VAR_slack_signing_secret_value="$secret_value"
-    ok "  Slack signing secret value collected (will be passed to terraform via TF_VAR)."
+    add_secret_version "$name" "$secret_value"
+    ok "  $name populated."
 }
 
-# Collect the Discord bot token value before terraform apply.
-# Sets TF_VAR_discord_bot_token_value for terraform to consume. The token is
-# stored in Secret Manager (discord-bot-token); the discord-worker VM reads
-# it at startup via its service account.
-collect_discord_token_value() {
+# Populate discord-bot-token from operator input. Idempotent — see slack.
+populate_discord_secret() {
+    local name="discord-bot-token"
+    if secret_has_version "$name"; then
+        ok "  $name already has an enabled version — leaving it alone."
+        return 0
+    fi
+
     cat <<EOF
 
   ${BOLD}How to get the Discord bot token:${NC}
@@ -469,6 +506,7 @@ collect_discord_token_value() {
        (Resetting invalidates the previous token immediately.)
 
 EOF
+    local secret_value=""
     read -rsp "  Discord bot token: " secret_value
     echo
 
@@ -478,37 +516,115 @@ EOF
         exit 1
     fi
 
-    export TF_VAR_discord_bot_token_value="$secret_value"
-    ok "  Discord bot token collected (will be passed to terraform via TF_VAR)."
+    add_secret_version "$name" "$secret_value"
+    ok "  $name populated."
+}
+
+# Populate the three admin UI secrets. Idempotent — only prompts for ones
+# that don't yet have an enabled version. admin-session-secret is generated
+# automatically via openssl, not prompted.
+populate_admin_secrets() {
+    if ! secret_has_version "oauth-client-id"; then
+        echo
+        echo "  ${BOLD}OAuth Client ID${NC} (GCP Console → APIs & Services → Credentials)"
+        local client_id=""
+        read -rp "    oauth-client-id: " client_id
+        if [[ -z "$client_id" ]]; then
+            err "  Empty OAuth client ID. Admin UI requires a non-empty value."
+            exit 1
+        fi
+        add_secret_version "oauth-client-id" "$client_id"
+        ok "  oauth-client-id populated."
+    else
+        ok "  oauth-client-id already has an enabled version — leaving it alone."
+    fi
+
+    if ! secret_has_version "oauth-client-secret"; then
+        echo "  ${BOLD}OAuth Client Secret${NC}"
+        local client_secret=""
+        read -rsp "    oauth-client-secret: " client_secret
+        echo
+        if [[ -z "$client_secret" ]]; then
+            err "  Empty OAuth client secret. Admin UI requires a non-empty value."
+            exit 1
+        fi
+        add_secret_version "oauth-client-secret" "$client_secret"
+        ok "  oauth-client-secret populated."
+    else
+        ok "  oauth-client-secret already has an enabled version — leaving it alone."
+    fi
+
+    if ! secret_has_version "admin-session-secret"; then
+        # No prompt — we just generate one.
+        local session
+        session=$(openssl rand -hex 32)
+        add_secret_version "admin-session-secret" "$session"
+        ok "  admin-session-secret generated and populated."
+    else
+        ok "  admin-session-secret already has an enabled version — leaving it alone."
+    fi
 }
 
 # --- Phase 9: terraform apply ---
+#
+# Three-step flow:
+#   9a. Targeted apply of just the Secret Manager secret CONTAINERS. We do
+#       this first because Cloud Run validates that each bound secret has
+#       at least one accessible version when it creates a revision —
+#       creating Cloud Run before the secrets are populated would fail.
+#   9b. Populate the secret values via `gcloud secrets versions add`. This
+#       is idempotent: re-runs leave already-populated secrets untouched.
+#   9c. Full terraform apply for everything else (Cloud Run, IAM, the
+#       discord-worker VM, etc.).
 phase_9_apply() {
     say "Phase 9: terraform plan + apply"
 
+    # Build the list of secret containers we need to materialize ahead of
+    # everything else. Each platform's gate decides whether its container
+    # is in scope.
+    local secret_targets=()
     if [[ "$USE_SLACK" == "true" ]]; then
-        say "Phase 9 needs the Slack signing secret value before terraform plan/apply."
-        collect_slack_secret_value
-        echo
+        secret_targets+=("-target=google_secret_manager_secret.slack_signing_secret")
     fi
-
     if [[ "$USE_DISCORD" == "true" ]]; then
-        say "Phase 9 needs the Discord bot token before terraform plan/apply."
-        collect_discord_token_value
-        echo
+        secret_targets+=("-target=google_secret_manager_secret.discord_bot_token")
+    fi
+    # The admin UI gate isn't carried in install.sh's USE_* vars — it's set
+    # directly in terraform.tfvars. Read it back from disk.
+    local admin_ui_enabled="false"
+    if grep -qE '^[[:space:]]*enable_admin_ui[[:space:]]*=[[:space:]]*true' \
+            "$REPO_ROOT/terraform/terraform.tfvars" 2>/dev/null; then
+        admin_ui_enabled="true"
+        secret_targets+=(
+            "-target=google_secret_manager_secret.oauth_client_id"
+            "-target=google_secret_manager_secret.oauth_client_secret"
+            "-target=google_secret_manager_secret.admin_session_secret"
+        )
     fi
 
+    if [[ ${#secret_targets[@]} -gt 0 ]]; then
+        say "Phase 9a: create secret containers (terraform apply -target)"
+        (cd "$REPO_ROOT/terraform" && terraform apply -auto-approve "${secret_targets[@]}")
+        ok "Secret containers created."
+        echo
+
+        say "Phase 9b: populate secret values via gcloud (skips any already populated)"
+        [[ "$USE_SLACK" == "true" ]] && populate_slack_secret
+        [[ "$USE_DISCORD" == "true" ]] && populate_discord_secret
+        [[ "$admin_ui_enabled" == "true" ]] && populate_admin_secrets
+        echo
+    else
+        say "No platforms or admin UI selected — skipping secret-container phase."
+    fi
+
+    say "Phase 9c: full terraform plan + apply"
     (cd "$REPO_ROOT/terraform" && terraform plan)
     echo
     if ! prompt_yn "Apply this plan?" y; then
         echo "Aborted before apply."
-        unset TF_VAR_slack_signing_secret_value
-        unset TF_VAR_discord_bot_token_value
         exit 0
     fi
     (cd "$REPO_ROOT/terraform" && terraform apply -auto-approve)
-    unset TF_VAR_slack_signing_secret_value
-    unset TF_VAR_discord_bot_token_value
     ok "Terraform apply complete."
     hr
 }

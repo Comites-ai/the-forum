@@ -918,11 +918,20 @@ discord_worker_image        = "us-central1-docker.pkg.dev/your-project/discord-w
 discord_worker_zone         = "us-central1-a"
 ```
 
-Pass the token via env so it doesn't land in `terraform.tfvars`:
+Run `terraform apply`. Terraform creates the `discord-bot-token`
+secret container, the worker VM, the IAM bindings, etc. — but
+**not the secret value**. After apply, populate the token:
 
 ```bash
-export TF_VAR_discord_bot_token_value="$(cat ~/.discord-bot-token)"
-terraform apply
+echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add discord-bot-token \
+  --data-file=- --project="${PROJECT_ID}"
+```
+
+Then reset the VM so it re-reads the secret on next boot:
+
+```bash
+gcloud compute instances reset discord-worker \
+  --zone=us-central1-a --project="${PROJECT_ID}"
 ```
 
 Terraform outputs `discord_worker_service_account` and
