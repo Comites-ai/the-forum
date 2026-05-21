@@ -3,7 +3,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-**The Forum** is open-source middleware that routes messages from **Slack**, **Google Chat**, and **Telegram** to Google Vertex AI Agent Engine and posts responses back. Supports multiple agents with individual platform identities, automatic session management, cross-platform conversation continuity, and scheduled jobs.
+**The Forum** is open-source middleware that routes messages from **Slack**, **Google Chat**, **Telegram**, and **Discord** to Google Vertex AI Agent Engine and posts responses back. Supports multiple agents with individual platform identities, automatic session management, cross-platform conversation continuity, and scheduled jobs.
 
 ## The Comites.ai Metaphor
 
@@ -14,13 +14,13 @@ At **Comites.ai**, we're bringing this concept into the AI age:
 - **Your AI agents are your comites** — specialized advisors you create to help with different domains
 - **The Forum is where you meet** — just as Roman emperors convened with their advisors in the Forum, this middleware is where you interact with your AI comites
 
-Build your own council of AI advisors. Deploy them to Slack, Google Chat, or Telegram. Let them help you navigate your domain.
+Build your own council of AI advisors. Deploy them to Slack, Google Chat, Telegram, or Discord. Let them help you navigate your domain.
 
 ## Features
 
-- **Multi-Platform Support**: Slack, Google Chat, and Telegram with unified architecture
+- **Multi-Platform Support**: Slack, Google Chat, Telegram, and Discord with unified architecture
 - **Multi-Agent Support**: Each agent has its own identity on each platform
-- **Cross-Platform Sessions**: Continue conversations across Slack, Google Chat, and Telegram
+- **Cross-Platform Sessions**: Continue conversations across Slack, Google Chat, Telegram, and Discord
 - **Session Management**: Automatic session tracking per user+agent combination
 - **Scheduled Jobs**: Proactive agent-initiated messages with rate limiting
 - **Admin UI**: Optional Google-OAuth-gated operator console at `/admin` ([docs/ADMIN_UI.md](docs/ADMIN_UI.md))
@@ -58,6 +58,9 @@ The Forum uses a unified `PlatformConnector` interface:
 - **SlackConnector**: Slack Events API integration
 - **GoogleChatConnector**: Google Chat API with service account auth
 - **TelegramConnector**: Telegram Bot API with webhook verification
+- **DiscordConnector**: Discord REST API. Inbound DMs arrive via a
+  separate Gateway worker — see [docs/DISCORD_WORKER.md](docs/DISCORD_WORKER.md)
+  for the architecture, cost notes, and patching policy.
 
 All platform-specific logic is isolated in connectors, making it easy to add new platforms.
 
@@ -71,6 +74,7 @@ All platform-specific logic is isolated in connectors, making it easy to add new
   - Slack Events API (HTTP push)
   - Google Chat API (HTTP push + service account auth)
   - Telegram Bot API (HTTP push + webhook verification)
+  - Discord REST API (outbound) + Gateway WebSocket via [discord-worker](discord-worker/) on Compute Engine (inbound)
 - **Infrastructure**: Terraform (reproducible infrastructure-as-code)
 - **Secrets**: Google Cloud Secret Manager
 - **Storage**: Google Cloud Storage (temporary file uploads)

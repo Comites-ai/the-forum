@@ -12,7 +12,7 @@ class AgentPlatformConfig(BaseModel):
 
     Each platform has its own authentication and configuration requirements.
     """
-    platform: str = Field(..., description="Platform name (slack, google_chat, telegram)")
+    platform: str = Field(..., description="Platform name (slack, google_chat, telegram, discord)")
     enabled: bool = Field(default=True, description="Whether this platform is active")
 
     # Slack-specific fields
@@ -60,6 +60,31 @@ class AgentPlatformConfig(BaseModel):
     telegram_webhook_secret: Optional[str] = Field(
         default=None,
         description="Secret token for Telegram webhook verification (X-Telegram-Bot-Api-Secret-Token)"
+    )
+
+    # Discord-specific fields
+    # Discord events arrive via a separate gateway worker (see docs/DISCORD_WORKER.md),
+    # not via a direct webhook from Discord. The worker authenticates to the forum
+    # using its VM service account, so there is no platform-supplied webhook secret here.
+    discord_bot_token: Optional[str] = Field(
+        default=None,
+        description="Direct Discord bot token (use discord_bot_token_secret instead for production)"
+    )
+    discord_bot_token_secret: Optional[str] = Field(
+        default=None,
+        description="Secret Manager secret name for Discord bot token (e.g., 'my-agent-discord-token')"
+    )
+    discord_bot_token_project_id: Optional[str] = Field(
+        default=None,
+        description="GCP project ID where the Discord bot token secret is stored"
+    )
+    discord_application_id: Optional[str] = Field(
+        default=None,
+        description="Discord application ID (snowflake) — used for logging and future interactions support"
+    )
+    discord_worker_service_account: Optional[str] = Field(
+        default=None,
+        description="Service account email of the discord-worker VM allowed to POST events for this agent"
     )
 
 
@@ -153,3 +178,7 @@ class Agent(BaseModel):
     def get_telegram_config(self) -> Optional[AgentPlatformConfig]:
         """Get Telegram platform configuration (convenience method)."""
         return self.get_platform_config("telegram")
+
+    def get_discord_config(self) -> Optional[AgentPlatformConfig]:
+        """Get Discord platform configuration (convenience method)."""
+        return self.get_platform_config("discord")

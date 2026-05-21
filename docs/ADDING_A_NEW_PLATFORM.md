@@ -1,6 +1,8 @@
 # Adding a New Platform to The Forum
 
-This guide documents the complete process for integrating a new messaging platform (like Telegram, WhatsApp, Discord, etc.) into The Forum.
+This guide documents the complete process for integrating a new messaging platform (like Telegram, WhatsApp, etc.) into The Forum.
+
+> **Note on platforms that don't fit the webhook model.** The pattern below assumes the platform delivers events to an HTTP webhook. Discord doesn't — its DMs only arrive over a Gateway WebSocket connection. The Discord integration handles this by adding a small separate worker service that holds the WebSocket and forwards events to a webhook handler on the Forum. If your target platform has the same constraint, see [DISCORD_WORKER.md](DISCORD_WORKER.md) for the worker pattern.
 
 ## Table of Contents
 
@@ -797,12 +799,23 @@ The Telegram integration (commit `7b49a11`) is a complete reference implementati
 6. **Logging**: Comprehensive logging for debugging
 7. **Type hints**: Full type annotations for better IDE support
 
+## Reference: Discord Integration (Gateway-based)
+
+Discord is in the codebase but follows a different pattern: it cannot
+deliver DMs over HTTP webhooks, so we run a separate worker that holds
+the Gateway WebSocket open and forwards events to the Forum. The
+connector lives in [app/services/platforms/discord_connector.py](../app/services/platforms/discord_connector.py)
+and the route handler in [app/api/v1/discord_events.py](../app/api/v1/discord_events.py),
+exactly mirroring the Telegram structure — but authentication is done via
+OIDC token (the worker's GCP service account) instead of a shared webhook
+secret. See [DISCORD_WORKER.md](DISCORD_WORKER.md) for cost, patching, and
+runbook details.
+
 ## Future Platform Ideas
 
 Based on this architecture, these platforms could be added with similar effort:
 
 - **WhatsApp Business API** (~400 lines)
-- **Discord** (~300 lines)
 - **Microsoft Teams** (~400 lines)
 - **LINE** (~300 lines)
 - **Facebook Messenger** (~400 lines)

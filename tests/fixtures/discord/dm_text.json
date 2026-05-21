@@ -1,0 +1,10 @@
+{
+  "event_type": "dm_message",
+  "user_id": "987654321098765432",
+  "username": "johndoe",
+  "global_name": "John Doe",
+  "channel_id": "111222333444555666",
+  "message_id": "777888999000111222",
+  "text": "Hello bot!",
+  "attachments": []
+}

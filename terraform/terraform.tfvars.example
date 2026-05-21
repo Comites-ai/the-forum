@@ -9,3 +9,30 @@ environment = "prod"
 # cloud_run_service_name = "slack-vertex-middleware"
 # scheduler_job_name = "scheduled-jobs-dispatcher"
 # scheduler_cron_schedule = "* * * * *"
+
+# -----------------------------------------------------------------------------
+# Discord (optional)
+#
+# Discord differs from Slack/Telegram: it cannot deliver DMs to an HTTP
+# webhook. When enabled below, terraform provisions an e2-micro Compute
+# Engine VM running the discord-worker container that holds the Gateway
+# WebSocket open and forwards DMs to the Forum.
+#
+# COST: e2-micro is free in us-central1, us-west1, or us-east1 — but ONE
+#       free VM per billing account. If your free tier is already in use
+#       elsewhere, expect ~$6-7/month for this VM.
+#
+# OS PATCHING: the VM auto-updates its host OS (Container-Optimized OS),
+#       but the worker container image is pinned and must be rebuilt
+#       manually. See docs/DISCORD_WORKER.md for the redeploy runbook.
+# -----------------------------------------------------------------------------
+# use_discord = true
+# discord_agent_id = "your-agent-firestore-doc-id"
+# discord_worker_image = "us-central1-docker.pkg.dev/your-project/discord-worker/worker:latest"
+# discord_worker_zone = "us-central1-a"
+# discord_worker_machine_type = "e2-micro"
+#
+# Pass the bot token via TF_VAR_discord_bot_token_value rather than
+# committing it here — terraform.tfvars is checked into the local
+# install directory and the token belongs in state, not on disk:
+#   export TF_VAR_discord_bot_token_value="$(cat ~/.discord-bot-token)"

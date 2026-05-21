@@ -55,6 +55,66 @@ variable "slack_signing_secret_value" {
 }
 
 # -----------------------------------------------------------------------------
+# Discord
+#
+# Discord is unlike Slack/Telegram/Google Chat: it does NOT deliver direct
+# messages over HTTP webhooks. DMs only arrive over the Gateway WebSocket
+# protocol, which means we need a long-running process to receive them.
+# When use_discord is true, terraform provisions an e2-micro Compute Engine
+# VM (the "discord-worker") that holds the Gateway connection open and
+# forwards each DM to the Forum's /api/v1/discord/events/{agent_id} endpoint.
+#
+# COST NOTE: an e2-micro is included in GCP's Always Free tier when
+# deployed in us-central1, us-west1, or us-east1 — one VM per billing
+# account. If your free-tier e2-micro allowance is already in use by another
+# VM, or you deploy this in a different region, you will be billed at the
+# standard e2-micro rate (~$6-7/month). Verify billing before applying.
+#
+# OS PATCHING: the VM runs Container-Optimized OS with automatic updates
+# enabled, so the host OS patches itself. The worker container image is
+# pinned and must be rebuilt and redeployed manually to pick up new
+# discord.py or Python security fixes. See docs/DISCORD_WORKER.md for the
+# redeploy runbook; review and rebuild quarterly or in response to CVEs.
+# -----------------------------------------------------------------------------
+
+variable "use_discord" {
+  description = "Whether Discord is in use. When true, terraform creates the discord-bot-token secret, a service account for the worker VM, and an e2-micro Compute Engine VM running the discord-worker container. See docs/DISCORD_WORKER.md."
+  type        = bool
+  default     = false
+}
+
+variable "discord_bot_token_value" {
+  description = "Value of the Discord bot token (from Discord Developer Portal → Bot → Reset Token). Required when use_discord is true. Pass via TF_VAR_discord_bot_token_value to keep it out of disk plaintext. Stored in terraform state."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "discord_agent_id" {
+  description = "Firestore agent document ID this Discord worker forwards events to. Required when use_discord is true. The worker POSTs to /api/v1/discord/events/{discord_agent_id}."
+  type        = string
+  default     = ""
+}
+
+variable "discord_worker_image" {
+  description = "Container image for the discord-worker VM. Build with `gcloud builds submit discord-worker --tag=...` and pass the resulting image URL here. Required when use_discord is true."
+  type        = string
+  default     = ""
+}
+
+variable "discord_worker_zone" {
+  description = "Compute Engine zone for the discord-worker VM. To stay in the GCP Always Free tier, pick a zone in us-central1, us-west1, or us-east1."
+  type        = string
+  default     = "us-central1-a"
+}
+
+variable "discord_worker_machine_type" {
+  description = "Machine type for the discord-worker VM. e2-micro is the cheapest option and is sufficient for Gateway traffic; it is also the type covered by the Always Free tier. Increase only if the worker proves CPU- or memory-bound."
+  type        = string
+  default     = "e2-micro"
+}
+
+# -----------------------------------------------------------------------------
 # Admin UI
 # -----------------------------------------------------------------------------
 

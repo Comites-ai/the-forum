@@ -1,0 +1,17 @@
+{
+  "event_type": "dm_message",
+  "user_id": "987654321098765432",
+  "username": "johndoe",
+  "global_name": "John Doe",
+  "channel_id": "111222333444555666",
+  "message_id": "777888999000111222",
+  "text": "Check this out",
+  "attachments": [
+    {
+      "url": "https://cdn.discordapp.com/attachments/111222333444555666/aaa/photo.png?ex=1&is=2&hm=abc",
+      "content_type": "image/png",
+      "filename": "photo.png",
+      "size": 56789
+    }
+  ]
+}

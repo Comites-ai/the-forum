@@ -1,6 +1,6 @@
 # Agent Deployment - The Forum Integration
 
-This guide covers how to integrate your Vertex AI agent with The Forum, supporting Slack, Google Chat, and Telegram.
+This guide covers how to integrate your Vertex AI agent with The Forum, supporting Slack, Google Chat, Telegram, and Discord.
 
 ⚠️ **IMPORTANT**: Copy this file to your agent repository (e.g., `growth-coach-agent/THE_FORUM_INTEGRATION.md`) so you see it when working on the agent!
 
@@ -25,14 +25,15 @@ The template handles both the new `platforms` array structure and legacy fields 
 1. [Creating a Brand New Agent - Slack](#creating-a-brand-new-agent---slack)
 2. [Creating a Brand New Agent - Google Chat](#creating-a-brand-new-agent---google-chat)
 3. [Creating a Brand New Agent - Telegram](#creating-a-brand-new-agent---telegram)
-4. [Updating an Existing Agent](#updating-an-existing-agent)
-5. [Troubleshooting](#troubleshooting)
-6. [Quick Reference](#quick-reference)
-7. [Receiving Images from Slack](#receiving-images-from-slack)
-8. [Setting Up GCS for Image Storage](#setting-up-gcs-for-image-storage)
-9. [Scheduler MCP Server](#scheduler-mcp-server)
-10. [Linking Platform Identities](#linking-platform-identities)
-11. [Adding MCP Servers to Your Agent (ADK-native)](#adding-mcp-servers-to-your-agent-adk-native)
+4. [Creating a Brand New Agent - Discord](#creating-a-brand-new-agent---discord)
+5. [Updating an Existing Agent](#updating-an-existing-agent)
+6. [Troubleshooting](#troubleshooting)
+7. [Quick Reference](#quick-reference)
+8. [Receiving Images from Slack](#receiving-images-from-slack)
+9. [Setting Up GCS for Image Storage](#setting-up-gcs-for-image-storage)
+10. [Scheduler MCP Server](#scheduler-mcp-server)
+11. [Linking Platform Identities](#linking-platform-identities)
+12. [Adding MCP Servers to Your Agent (ADK-native)](#adding-mcp-servers-to-your-agent-adk-native)
 
 ---
 
@@ -836,6 +837,170 @@ your-agent-repo/
 ├── agent.py                        # Your agent code
 └── MIDDLEWARE_INTEGRATION.md       # Copy of this guide
 ```
+
+---
+
+## Creating a Brand New Agent - Discord
+
+### Overview
+
+Discord is different from Slack, Google Chat, and Telegram in one
+important way: it does **not** deliver direct messages to HTTP webhooks.
+DMs only arrive over a long-lived WebSocket (the "Gateway"). The Forum
+therefore deploys a small companion service — the
+[discord-worker](../discord-worker/) — on a Compute Engine VM that holds
+the Gateway connection open and forwards each DM to the Forum's
+`/api/v1/discord/events/{agent_id}` endpoint.
+
+**Cost note.** The worker runs on an `e2-micro` VM. In `us-central1`,
+`us-west1`, or `us-east1` this is included in GCP's Always Free tier
+(one VM per billing account). If your free-tier slot is already in use,
+expect about $6–7/month for the VM. See
+[docs/DISCORD_WORKER.md](DISCORD_WORKER.md) for full cost detail and
+patching responsibilities — you own the worker container image and need
+to rebuild it periodically.
+
+### Prerequisites
+
+- A Discord application and bot in the [Developer Portal](https://discord.com/developers/applications)
+- The bot's token (Bot → Reset Token)
+- **Message Content Intent** and **Direct Messages Intent** enabled on
+  the bot (Bot → Privileged Gateway Intents)
+- An Agent project provisioned to host the Discord bot token secret
+
+### Step 1: Create the Discord Application and Bot
+
+1. Go to [discord.com/developers/applications](https://discord.com/developers/applications) → **New Application**.
+2. Open your application → **Bot** → enable:
+   - **Message Content Intent**
+   - **Direct Messages Intent**
+3. Click **Reset Token** and copy the token (you'll see it once).
+4. **Save** the application ID (under **General Information**) — you'll
+   put it on the agent's Firestore document for traceability.
+
+### Step 2: Store the Bot Token in Secret Manager
+
+```bash
+gcloud secrets create discord-bot-token \
+  --project="${PROJECT_ID}" \
+  --replication-policy=automatic
+
+echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add discord-bot-token \
+  --project="${PROJECT_ID}" \
+  --data-file=-
+
+# Grant the discord-worker service account access. Terraform creates this
+# SA when use_discord = true.
+gcloud secrets add-iam-policy-binding discord-bot-token \
+  --project="${PROJECT_ID}" \
+  --member="serviceAccount:discord-worker@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+### Step 3: Build and Push the Worker Container
+
+From the repository root:
+
+```bash
+gcloud builds submit discord-worker \
+  --project="${PROJECT_ID}" \
+  --tag="us-central1-docker.pkg.dev/${PROJECT_ID}/discord-worker/worker:latest"
+```
+
+### Step 4: Provision the Worker VM with Terraform
+
+In your `terraform.tfvars`:
+
+```hcl
+use_discord                 = true
+discord_agent_id            = "your-agent-firestore-doc-id"
+discord_worker_image        = "us-central1-docker.pkg.dev/your-project/discord-worker/worker:latest"
+discord_worker_zone         = "us-central1-a"
+```
+
+Pass the token via env so it doesn't land in `terraform.tfvars`:
+
+```bash
+export TF_VAR_discord_bot_token_value="$(cat ~/.discord-bot-token)"
+terraform apply
+```
+
+Terraform outputs `discord_worker_service_account` and
+`discord_setup_instructions` — write down the SA email, you'll need it
+in Step 5.
+
+### Step 5: Register the Agent with The Forum
+
+Add a Discord platform entry to the agent's Firestore document. The
+`discord_worker_service_account` field must match the SA email from
+terraform output exactly — the Forum uses it to authorize incoming
+events from the worker.
+
+```json
+{
+  "platforms": [
+    {
+      "platform": "discord",
+      "enabled": true,
+      "discord_bot_token_secret": "discord-bot-token",
+      "discord_bot_token_project_id": "your-project-id",
+      "discord_application_id": "your-discord-app-id",
+      "discord_worker_service_account": "discord-worker@your-project-id.iam.gserviceaccount.com"
+    }
+  ]
+}
+```
+
+### Step 6: Invite the Bot and Test
+
+1. In the Developer Portal → **OAuth2** → **URL Generator**:
+   - Scopes: `bot`
+   - Bot permissions: `Send Messages`, `Read Message History`
+2. Open the generated URL, pick a server you control, and authorize.
+3. Open a DM with the bot and send a message.
+4. Watch the worker logs:
+   ```bash
+   gcloud logging read \
+     'resource.type="gce_instance" AND jsonPayload.message:"Forwarded DM"' \
+     --limit=20 --project="${PROJECT_ID}"
+   ```
+5. Watch the Forum logs for the corresponding event:
+   ```bash
+   gcloud run services logs read the-forum \
+     --project="${PROJECT_ID}" --limit=50 | grep "Discord"
+   ```
+
+### Step 7: Link Your Discord Identity (Optional)
+
+If you already have an account on another platform with the same Forum,
+link your Discord user ID so conversations stay in one session:
+
+```bash
+python scripts/link_identities.py \
+  --user-id YOUR_FIRESTORE_USER_ID \
+  --platform discord \
+  --platform-user-id YOUR_DISCORD_SNOWFLAKE \
+  --display-name "Your Name"
+```
+
+### What's Different from Slack/Telegram
+
+- **No webhook signature header.** The worker authenticates with a
+  Google-issued OIDC token. The Forum verifies signature, audience,
+  expiry, and an exact email match against
+  `discord_worker_service_account`.
+- **No email from the platform.** Discord does not expose user email to
+  bots. Auto-linking by email does not work for Discord users; use
+  `scripts/link_identities.py` explicitly.
+- **You own the worker container.** COS auto-patches the host OS but the
+  Python image is pinned. See [DISCORD_WORKER.md](DISCORD_WORKER.md) for
+  the rebuild cadence.
+
+### Documentation
+
+Keep a copy of your terraform configuration and the worker image build
+recipe in your agent repo, alongside the corresponding Slack/Telegram
+sections.
 
 ---
 

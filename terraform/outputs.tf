@@ -35,6 +35,82 @@ output "google_chat_webhook_url" {
   value       = "${google_cloud_run_v2_service.forum.uri}/api/v1/google-chat/events"
 }
 
+output "discord_worker_service_account" {
+  description = "Email of the discord-worker VM service account. Set this as discord_worker_service_account on the agent's Firestore document so the Forum will accept events forwarded by this worker. Only meaningful when use_discord is true."
+  value       = var.use_discord ? google_service_account.discord_worker[0].email : ""
+}
+
+output "discord_worker_vm_name" {
+  description = "Compute Engine VM name for the discord-worker (when use_discord is true)."
+  value       = var.use_discord ? google_compute_instance.discord_worker[0].name : ""
+}
+
+locals {
+  discord_setup_instructions_text = var.use_discord ? format(
+    <<-EOT
+
+      ==================== DISCORD SETUP ====================
+
+      Forum endpoint the worker will POST to:
+        %s/api/v1/discord/events/%s
+
+      Worker VM:
+        Name:    %s
+        Zone:    %s
+        Machine: %s
+
+      Cost reminder:
+        An e2-micro VM in us-central1, us-west1, or us-east1 is included
+        in the GCP Always Free tier — ONE VM per billing account. If that
+        allowance is already consumed (or you picked a different region),
+        this VM will be billed at the standard rate (~$6-7/month).
+
+      Patching reminder:
+        The VM auto-patches its host OS (Container-Optimized OS). The
+        worker container image is pinned — rebuild it quarterly or in
+        response to CVEs by running, from the repo root:
+          gcloud builds submit discord-worker \
+            --tag=%s \
+            --project=%s
+        then either reboot the VM or wait for the next maintenance event.
+
+      Agent Firestore document — REQUIRED fields:
+        platforms: [
+          {
+            "platform": "discord",
+            "enabled": true,
+            "discord_bot_token_secret": "discord-bot-token",
+            "discord_bot_token_project_id": "%s",
+            "discord_worker_service_account": "%s"
+          }
+        ]
+
+      Invite the bot to test:
+        Generate an invite URL in Discord Developer Portal → OAuth2 →
+        URL Generator (scopes: bot; permissions: Send Messages, Read
+        Message History). DM the bot — the worker should forward your
+        message within seconds.
+
+      ======================================================
+    EOT
+    ,
+    google_cloud_run_v2_service.forum.uri,
+    var.discord_agent_id,
+    google_compute_instance.discord_worker[0].name,
+    var.discord_worker_zone,
+    var.discord_worker_machine_type,
+    var.discord_worker_image,
+    var.project_id,
+    var.project_id,
+    google_service_account.discord_worker[0].email,
+  ) : ""
+}
+
+output "discord_setup_instructions" {
+  description = "Discord-specific setup steps. Only meaningful when use_discord is true."
+  value       = local.discord_setup_instructions_text
+}
+
 output "admin_redirect_uri" {
   description = "Redirect URI to register on the OAuth client and set as OAUTH_REDIRECT_URI on the Cloud Run service. Only meaningful when enable_admin_ui is true."
   value       = "${google_cloud_run_v2_service.forum.uri}/admin/auth/callback"

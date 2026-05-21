@@ -8,12 +8,13 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
 
-PLATFORMS = ("slack", "google_chat", "telegram")
+PLATFORMS = ("slack", "google_chat", "telegram", "discord")
 
 PLATFORM_LABELS = {
     "slack": "Slack",
     "google_chat": "Google Chat",
     "telegram": "Telegram",
+    "discord": "Discord",
 }
 
 # Sorted IANA timezone names for the scheduled-job timezone dropdown.

@@ -49,3 +49,10 @@ resource "google_project_service" "logging" {
   service            = "logging.googleapis.com"
   disable_on_destroy = false
 }
+
+# Required for the discord-worker VM. Enabled unconditionally because it's
+# free and several other infrastructure features may want to depend on it.
+resource "google_project_service" "compute" {
+  service            = "compute.googleapis.com"
+  disable_on_destroy = false
+}

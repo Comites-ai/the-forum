@@ -44,6 +44,40 @@ resource "google_secret_manager_secret_version" "slack_signing_secret" {
 # See docs/FOR_AGENT_DEVELOPERS.md for instructions.
 
 # -----------------------------------------------------------------------------
+# Discord bot token (created only when var.use_discord is true)
+#
+# Holds the Discord bot token from the Developer Portal. The discord-worker
+# VM's service account is granted secretAccessor on this secret in
+# terraform/discord_worker.tf; the Forum's Cloud Run service does NOT read
+# this secret (the worker is the only thing that talks to Discord directly).
+# -----------------------------------------------------------------------------
+resource "google_secret_manager_secret" "discord_bot_token" {
+  count     = var.use_discord ? 1 : 0
+  secret_id = "discord-bot-token"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [
+    google_project_service.secretmanager
+  ]
+}
+
+resource "google_secret_manager_secret_version" "discord_bot_token" {
+  count       = var.use_discord ? 1 : 0
+  secret      = google_secret_manager_secret.discord_bot_token[0].id
+  secret_data = var.discord_bot_token_value
+
+  lifecycle {
+    precondition {
+      condition     = length(var.discord_bot_token_value) > 0
+      error_message = "When use_discord is true, discord_bot_token_value must be non-empty. Pass via TF_VAR_discord_bot_token_value."
+    }
+  }
+}
+
+# -----------------------------------------------------------------------------
 # Admin UI secrets (created only when enable_admin_ui is true)
 # -----------------------------------------------------------------------------
 
