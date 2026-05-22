@@ -75,6 +75,37 @@ resource "google_artifact_registry_repository_iam_member" "discord_worker_reader
   member     = "serviceAccount:${google_service_account.discord_worker[0].email}"
 }
 
+# Cloud Build's runtime SA needs writer access to push the worker image
+# into this AR repo. `gcloud builds submit discord-worker --tag=...` is
+# the canonical build command (see docs/DISCORD_WORKER.md).
+#
+# In projects created after Dec 2024, Cloud Build defaults to running
+# under the Compute Engine default service account
+# (<project_number>-compute@developer.gserviceaccount.com), NOT the
+# legacy <project_number>@cloudbuild.gserviceaccount.com. We grant both
+# so this works on either project vintage.
+data "google_project" "this" {
+  project_id = var.project_id
+}
+
+resource "google_artifact_registry_repository_iam_member" "discord_worker_writer_legacy" {
+  count      = var.use_discord ? 1 : 0
+  project    = var.project_id
+  location   = google_artifact_registry_repository.discord_worker[0].location
+  repository = google_artifact_registry_repository.discord_worker[0].name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${data.google_project.this.number}@cloudbuild.gserviceaccount.com"
+}
+
+resource "google_artifact_registry_repository_iam_member" "discord_worker_writer_compute" {
+  count      = var.use_discord ? 1 : 0
+  project    = var.project_id
+  location   = google_artifact_registry_repository.discord_worker[0].location
+  repository = google_artifact_registry_repository.discord_worker[0].name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${data.google_project.this.number}-compute@developer.gserviceaccount.com"
+}
+
 # The worker calls Cloud Run with an OIDC bearer token. We grant invoker
 # explicitly so the audience check on the token passes cleanly even if
 # the service ever moves to restricted ingress.
@@ -193,5 +224,22 @@ resource "google_compute_instance" "discord_worker" {
   depends_on = [
     google_project_service.compute[0],
     google_project_iam_member.discord_worker_firestore[0],
+    # The project denies external IPs by default. The targeted allow-list
+    # entry for this VM is created via google_project_organization_policy
+    # — but org policy changes propagate asynchronously and can take a
+    # few minutes to take effect. The wait below forces terraform to
+    # delay the VM create call until the policy has had time to settle.
+    time_sleep.wait_for_discord_external_ip_policy[0],
   ]
+}
+
+# Org policies are eventually consistent — the API returns "policy created"
+# immediately, but the policy isn't enforced project-wide for ~1-2 minutes.
+# Without this wait, the very next google_compute_instance.create call
+# fails with "Constraint constraints/compute.vmExternalIpAccess violated"
+# because the new allow-list entry hasn't propagated yet.
+resource "time_sleep" "wait_for_discord_external_ip_policy" {
+  count           = var.use_discord ? 1 : 0
+  depends_on      = [google_project_organization_policy.discord_worker_external_ip[0]]
+  create_duration = "120s"
 }
