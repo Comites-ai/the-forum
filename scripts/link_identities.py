@@ -4,7 +4,7 @@
 #!/usr/bin/env python3
 """Link platform identities to an existing user.
 
-This script allows you to link identities from any platform (Slack, Google Chat, Telegram)
+This script allows you to link identities from any platform (Slack, Google Chat, Telegram, Discord)
 to an existing unified user in Firestore.
 
 Usage:
@@ -51,7 +51,7 @@ def link_identity(
 
     Args:
         user_id: Firestore user document ID
-        platform: Platform name (slack, google_chat, telegram)
+        platform: Platform name (slack, google_chat, telegram, discord)
         platform_user_id: Platform-specific user ID
         display_name: User's display name on this platform
         project_id: GCP project ID for Firestore
@@ -59,7 +59,7 @@ def link_identity(
     db = firestore.Client(project=project_id, database='(default)')
 
     # Validate platform
-    valid_platforms = ['slack', 'google_chat', 'telegram']
+    valid_platforms = ['slack', 'google_chat', 'telegram', 'discord']
     if platform not in valid_platforms:
         print(f"ERROR: Invalid platform '{platform}'. Must be one of: {', '.join(valid_platforms)}")
         sys.exit(1)
@@ -161,7 +161,7 @@ def main():
     parser.add_argument(
         '--platform',
         required=True,
-        choices=['slack', 'google_chat', 'telegram'],
+        choices=['slack', 'google_chat', 'telegram', 'discord'],
         help='Platform name'
     )
     parser.add_argument(

@@ -9,3 +9,31 @@ environment = "prod"
 # cloud_run_service_name = "slack-vertex-middleware"
 # scheduler_job_name = "scheduled-jobs-dispatcher"
 # scheduler_cron_schedule = "* * * * *"
+
+# -----------------------------------------------------------------------------
+# Discord (optional)
+#
+# Discord differs from Slack/Telegram: it cannot deliver DMs to an HTTP
+# webhook. When enabled below, terraform provisions a SINGLE multi-tenant
+# e2-micro Compute Engine VM running the discord-worker container. The
+# worker discovers Discord-enabled agents from Firestore at runtime and
+# opens one Gateway WebSocket per agent. To add a new Discord agent, no
+# Forum-side terraform change is needed — see the agent-project template.
+#
+# COST: e2-micro is free in us-central1, us-west1, or us-east1 — but ONE
+#       free VM per billing account. If your free tier is already in use
+#       elsewhere, expect ~$6-7/month for this VM (regardless of how many
+#       Discord agents it serves — the worker is multi-tenant).
+#
+# OS PATCHING: the VM auto-updates its host OS (Container-Optimized OS),
+#       but the worker container image is pinned and must be rebuilt
+#       manually. See docs/DISCORD_WORKER.md for the redeploy runbook.
+# -----------------------------------------------------------------------------
+# use_discord = true
+# discord_worker_image = "us-central1-docker.pkg.dev/your-project/discord-worker/worker:latest"
+# discord_worker_zone = "us-central1-a"
+# discord_worker_machine_type = "e2-micro"
+#
+# Per-agent bot tokens are NOT managed here. Each Discord-enabled agent
+# creates its OWN discord-bot-token secret in its OWN GCP project — see
+# docs/terraform-templates/agent-project for the template.

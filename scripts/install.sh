@@ -188,22 +188,56 @@ phase_5_migration() {
 phase_6_platforms() {
     say "Phase 6: Platforms"
     echo "Which messaging platforms will you use? Space-separated."
-    echo "Options: ${BOLD}slack${NC} ${BOLD}gchat${NC} (Google Chat) ${BOLD}telegram${NC}"
+    echo "Options: ${BOLD}slack${NC} ${BOLD}gchat${NC} (Google Chat) ${BOLD}telegram${NC} ${BOLD}discord${NC}"
+    echo
+    echo "${BOLD}Note on discord:${NC} Discord cannot deliver DMs to HTTP webhooks, so"
+    echo "selecting it provisions a single multi-tenant e2-micro Compute Engine"
+    echo "VM (the discord-worker). The worker auto-discovers Discord-enabled"
+    echo "agents from Firestore at runtime, so one VM serves all your Discord"
+    echo "bots. That VM is FREE in the GCP Always Free tier in us-central1,"
+    echo "us-west1, or us-east1 (one per billing account), but costs ~\$6-7/month"
+    echo "if your free-tier slot is already in use or you deploy outside those"
+    echo "regions. See docs/DISCORD_WORKER.md for cost and patching detail. Per-"
+    echo "agent bot tokens live in each agent's OWN project (see the agent-"
+    echo "project terraform template) — install.sh does NOT prompt for them."
+    echo
     read -rp "Platforms: " platforms_input
     USE_SLACK=false
     USE_GCHAT=false
     USE_TELEGRAM=false
+    USE_DISCORD=false
     for p in $platforms_input; do
         case "$p" in
             slack)    USE_SLACK=true ;;
             gchat)    USE_GCHAT=true ;;
             telegram) USE_TELEGRAM=true ;;
+            discord)  USE_DISCORD=true ;;
             *) warn "Unknown platform: $p (ignored)" ;;
         esac
     done
-    if [[ "$USE_SLACK" == "false" && "$USE_GCHAT" == "false" && "$USE_TELEGRAM" == "false" ]]; then
+    if [[ "$USE_SLACK" == "false" && "$USE_GCHAT" == "false" && "$USE_TELEGRAM" == "false" && "$USE_DISCORD" == "false" ]]; then
         warn "No platforms selected. The Forum will install but you'll need to wire one up later."
     fi
+
+    # Discord needs a worker VM image to be set in terraform at apply time.
+    # The image URL is deterministic; we compute it here.
+    DISCORD_WORKER_ZONE=""
+    DISCORD_WORKER_IMAGE=""
+    if [[ "$USE_DISCORD" == "true" ]]; then
+        echo
+        say "Discord worker VM configuration"
+        echo "Pick a zone for the discord-worker VM. Stay in us-central1,"
+        echo "us-west1, or us-east1 to keep the e2-micro in the Always Free tier."
+        echo "Default: us-central1-a"
+        read -rp "  Worker zone [us-central1-a]: " DISCORD_WORKER_ZONE
+        DISCORD_WORKER_ZONE="${DISCORD_WORKER_ZONE:-us-central1-a}"
+        # The image URL is deterministic. Terraform creates the Artifact
+        # Registry repo, then phase_13 prints the gcloud builds submit
+        # command to populate it. The VM pulls on next reboot.
+        DISCORD_WORKER_IMAGE="us-central1-docker.pkg.dev/${PROJECT_ID}/discord-worker/worker:latest"
+        ok "  Worker image will be: $DISCORD_WORKER_IMAGE"
+    fi
+
     ok "Selected: ${platforms_input:-(none)}"
     hr
 }
@@ -249,7 +283,22 @@ project_id  = "$PROJECT_ID"
 region      = "$REGION"
 environment = "production"
 use_slack   = $USE_SLACK
+use_discord = $USE_DISCORD
 EOF
+    if [[ "$USE_DISCORD" == "true" ]]; then
+        cat >> "$path" <<EOF
+
+# Discord-specific vars. The worker is multi-tenant: it discovers
+# Discord-enabled agents from Firestore at runtime. Per-agent bot tokens
+# live in each agent's OWN project (see the agent-project terraform
+# template). The worker image will be empty in the registry until you
+# run \`gcloud builds submit discord-worker --tag=\$discord_worker_image\`
+# (see phase 13 of install.sh's manual-steps output, or
+# docs/DISCORD_WORKER.md).
+discord_worker_image        = "$DISCORD_WORKER_IMAGE"
+discord_worker_zone         = "$DISCORD_WORKER_ZONE"
+EOF
+    fi
     ok "Wrote $path"
 }
 
@@ -349,12 +398,46 @@ EOF
     hr
 }
 
-# Collect the Slack signing secret value before terraform apply.
-# Sets TF_VAR_slack_signing_secret_value for terraform to consume.
-# Cloud Run validates the bound secret has a version at creation time, so
-# the value must exist BEFORE terraform creates the Cloud Run service —
-# we pass it through terraform itself rather than populating after apply.
-collect_slack_secret_value() {
+# True iff `gcloud secrets describe` finds the secret in the project. We
+# need this to gate the `-target=` apply on phase 9a — pulling a secret
+# that doesn't yet exist into a targeted plan errors out.
+secret_exists() {
+    local name="$1"
+    gcloud secrets describe "$name" --project="$PROJECT_ID" >/dev/null 2>&1
+}
+
+# True iff the secret has at least one ENABLED version. We treat the
+# secret as "populated" when this returns true, so re-runs of install.sh
+# don't overwrite values the operator (or a prior install) already set.
+secret_has_version() {
+    local name="$1"
+    local count
+    count=$(gcloud secrets versions list "$name" \
+        --filter="state:ENABLED" --limit=1 --format="value(name)" \
+        --project="$PROJECT_ID" 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$count" -ge 1 ]]
+}
+
+# Add a new version to a Secret Manager secret. Value is supplied on stdin
+# so it never lands in the process listing.
+add_secret_version() {
+    local name="$1"
+    local value="$2"
+    printf '%s' "$value" | gcloud secrets versions add "$name" \
+        --data-file=- --project="$PROJECT_ID" >/dev/null
+}
+
+# Populate slack-signing-secret from operator input (or migration backup).
+# Idempotent: if the secret already has an enabled version, returns silently.
+# Cloud Run requires the secret to have a version at revision-create time;
+# phase 9 calls this BEFORE the full terraform apply for that reason.
+populate_slack_secret() {
+    local name="slack-signing-secret"
+    if secret_has_version "$name"; then
+        ok "  $name already has an enabled version — leaving it alone."
+        return 0
+    fi
+
     local backup="$MIGRATION_PATH/secrets/slack-signing-secret.value"
     local secret_value=""
 
@@ -389,29 +472,111 @@ EOF
         exit 1
     fi
 
-    export TF_VAR_slack_signing_secret_value="$secret_value"
-    ok "  Slack signing secret value collected (will be passed to terraform via TF_VAR)."
+    add_secret_version "$name" "$secret_value"
+    ok "  $name populated."
+}
+
+# Populate the three admin UI secrets. Idempotent — only prompts for ones
+# that don't yet have an enabled version. admin-session-secret is generated
+# automatically via openssl, not prompted.
+populate_admin_secrets() {
+    if ! secret_has_version "oauth-client-id"; then
+        echo
+        echo "  ${BOLD}OAuth Client ID${NC} (GCP Console → APIs & Services → Credentials)"
+        local client_id=""
+        read -rp "    oauth-client-id: " client_id
+        if [[ -z "$client_id" ]]; then
+            err "  Empty OAuth client ID. Admin UI requires a non-empty value."
+            exit 1
+        fi
+        add_secret_version "oauth-client-id" "$client_id"
+        ok "  oauth-client-id populated."
+    else
+        ok "  oauth-client-id already has an enabled version — leaving it alone."
+    fi
+
+    if ! secret_has_version "oauth-client-secret"; then
+        echo "  ${BOLD}OAuth Client Secret${NC}"
+        local client_secret=""
+        read -rsp "    oauth-client-secret: " client_secret
+        echo
+        if [[ -z "$client_secret" ]]; then
+            err "  Empty OAuth client secret. Admin UI requires a non-empty value."
+            exit 1
+        fi
+        add_secret_version "oauth-client-secret" "$client_secret"
+        ok "  oauth-client-secret populated."
+    else
+        ok "  oauth-client-secret already has an enabled version — leaving it alone."
+    fi
+
+    if ! secret_has_version "admin-session-secret"; then
+        # No prompt — we just generate one.
+        local session
+        session=$(openssl rand -hex 32)
+        add_secret_version "admin-session-secret" "$session"
+        ok "  admin-session-secret generated and populated."
+    else
+        ok "  admin-session-secret already has an enabled version — leaving it alone."
+    fi
 }
 
 # --- Phase 9: terraform apply ---
+#
+# Three-step flow:
+#   9a. Targeted apply of just the Secret Manager secret CONTAINERS. We do
+#       this first because Cloud Run validates that each bound secret has
+#       at least one accessible version when it creates a revision —
+#       creating Cloud Run before the secrets are populated would fail.
+#   9b. Populate the secret values via `gcloud secrets versions add`. This
+#       is idempotent: re-runs leave already-populated secrets untouched.
+#   9c. Full terraform apply for everything else (Cloud Run, IAM, the
+#       discord-worker VM, etc.).
 phase_9_apply() {
     say "Phase 9: terraform plan + apply"
 
+    # Build the list of secret containers we need to materialize ahead of
+    # everything else. Discord is intentionally absent here — Discord bot
+    # tokens live per-agent in each agent's OWN project, not the Forum's.
+    local secret_targets=()
     if [[ "$USE_SLACK" == "true" ]]; then
-        say "Phase 9 needs the Slack signing secret value before terraform plan/apply."
-        collect_slack_secret_value
-        echo
+        secret_targets+=("-target=google_secret_manager_secret.slack_signing_secret")
+    fi
+    # The admin UI gate isn't carried in install.sh's USE_* vars — it's set
+    # directly in terraform.tfvars. Read it back from disk.
+    local admin_ui_enabled="false"
+    if grep -qE '^[[:space:]]*enable_admin_ui[[:space:]]*=[[:space:]]*true' \
+            "$REPO_ROOT/terraform/terraform.tfvars" 2>/dev/null; then
+        admin_ui_enabled="true"
+        secret_targets+=(
+            "-target=google_secret_manager_secret.oauth_client_id"
+            "-target=google_secret_manager_secret.oauth_client_secret"
+            "-target=google_secret_manager_secret.admin_session_secret"
+        )
     fi
 
+    if [[ ${#secret_targets[@]} -gt 0 ]]; then
+        say "Phase 9a: create secret containers (terraform apply -target)"
+        (cd "$REPO_ROOT/terraform" && terraform apply -auto-approve "${secret_targets[@]}")
+        ok "Secret containers created."
+        echo
+
+        say "Phase 9b: populate secret values via gcloud (skips any already populated)"
+        [[ "$USE_SLACK" == "true" ]] && populate_slack_secret
+        [[ "$admin_ui_enabled" == "true" ]] && populate_admin_secrets
+        echo
+    else
+        say "No Forum-managed secrets to populate — skipping secret-container phase."
+    fi
+
+    say "Phase 9c: full terraform plan + apply"
     (cd "$REPO_ROOT/terraform" && terraform plan)
     echo
     if ! prompt_yn "Apply this plan?" y; then
         echo "Aborted before apply."
-        unset TF_VAR_slack_signing_secret_value
         exit 0
     fi
     (cd "$REPO_ROOT/terraform" && terraform apply -auto-approve)
-    unset TF_VAR_slack_signing_secret_value
     ok "Terraform apply complete."
     hr
 }
@@ -517,7 +682,69 @@ ${BOLD}[ ] TELEGRAM (per agent)${NC}
 EOF
     fi
 
-    if [[ "$USE_SLACK" == "false" && "$USE_GCHAT" == "false" && "$USE_TELEGRAM" == "false" ]]; then
+    if [[ "$USE_DISCORD" == "true" ]]; then
+        local worker_sa
+        worker_sa=$(cd "$REPO_ROOT/terraform" && terraform output -raw discord_worker_service_account 2>/dev/null || echo "<discord-worker-sa>")
+        cat <<EOF
+${BOLD}[ ] DISCORD${NC}
+    Terraform has provisioned the multi-tenant worker: an Artifact
+    Registry repo (discord-worker), the worker service account, the
+    e2-micro VM, and the Firestore/Logging/Monitoring IAM bindings. The
+    VM is running but its container is failing to start because the
+    worker image has not been built yet. Finish the worker bring-up,
+    then add Discord agents one at a time using the per-agent steps.
+
+    Worker bring-up (one-time):
+
+    1. Build and push the worker container image:
+         gcloud builds submit "$REPO_ROOT/discord-worker" \\
+           --tag="$DISCORD_WORKER_IMAGE" \\
+           --project=$PROJECT_ID
+
+    2. Reboot the VM so it pulls the freshly-built image:
+         gcloud compute instances reset discord-worker \\
+           --zone=$DISCORD_WORKER_ZONE \\
+           --project=$PROJECT_ID
+
+    3. Confirm the worker logs the startup banner:
+         gcloud compute instances get-serial-port-output discord-worker \\
+           --zone=$DISCORD_WORKER_ZONE \\
+           --project=$PROJECT_ID | tail -50
+       Look for: "discord-worker starting: forum=..."
+
+    To onboard a Discord agent (per agent, in the AGENT'S project):
+
+    A. Provision the bot token secret in the agent's project. Use the
+       docs/terraform-templates/agent-project main.tf SECTION 5: DISCORD
+       block, then populate the token:
+         echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add \\
+           \${BOT_ACCOUNT_ID}-discord-token \\
+           --data-file=- --project=<agent-project>
+
+    B. Add a discord platform block to the agent's Firestore document.
+       The discord_worker_service_account field must be EXACTLY this:
+         "discord_worker_service_account": "$worker_sa"
+
+    C. Wait up to AGENT_REFRESH_INTERVAL_SECONDS (default 300s) for the
+       worker to pick up the new bot. Or force an immediate reconcile by
+       resetting the VM (gcloud compute instances reset discord-worker).
+
+    D. Invite the bot to a server (Discord Developer Portal → OAuth2 →
+       URL Generator, scopes: bot, permissions: Send Messages + Read
+       Message History) and DM it.
+
+    Watch the worker forward DMs to confirm:
+         gcloud logging read \\
+           'resource.type="gce_instance" AND jsonPayload.message:"Forwarded DM"' \\
+           --limit=20 --project=$PROJECT_ID
+
+    Full runbook (cost, patching cadence, redeploy steps):
+       docs/DISCORD_WORKER.md
+
+EOF
+    fi
+
+    if [[ "$USE_SLACK" == "false" && "$USE_GCHAT" == "false" && "$USE_TELEGRAM" == "false" && "$USE_DISCORD" == "false" ]]; then
         echo "  No platforms selected. When you're ready, see docs/FOR_AGENT_DEVELOPERS.md."
         echo
     fi
