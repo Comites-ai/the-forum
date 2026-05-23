@@ -38,7 +38,7 @@ output "google_chat_webhook_url" {
 output "discord_worker_service_account" {
   description = "Email of the discord-worker VM service account. Every Discord-enabled agent puts this exact email in its Firestore document's `discord_worker_service_account` field so the Forum will accept events forwarded by this worker. Same email for every agent — the worker is multi-tenant. Only meaningful when use_discord is true."
   # try() guards the [0] index against count=0; never errors when use_discord=false.
-  value       = try(google_service_account.discord_worker[0].email, "")
+  value = try(google_service_account.discord_worker[0].email, "")
 }
 
 output "discord_worker_vm_name" {
