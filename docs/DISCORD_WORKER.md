@@ -102,42 +102,105 @@ A reasonable cadence:
 
 ## Onboarding a Discord agent
 
-From the agent operator's perspective, adding a new Discord agent does
-NOT require any terraform changes on the Forum side. The Forum-side
-worker auto-discovers new agents from Firestore.
+Forum-side: **nothing**. The multi-tenant worker auto-discovers new
+Discord-enabled agents from Firestore on its next refresh tick.
 
-1. **In the Discord Developer Portal:** create a new application + bot,
-   enable Message Content Intent and Direct Messages Intent, copy the
-   bot token.
+Agent-side: register the bot in Discord, populate the bot-token secret
+in the agent's project, set `discord_application_id` in the agent's
+`terraform.tfvars`, and run `register_agent.py`.
 
-2. **In the agent's project:** provision the bot-token secret via the
-   `docs/terraform-templates/agent-project` template (SECTION 5:
-   DISCORD), then populate the value:
-   ```bash
-   echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add \
-     ${BOT_ACCOUNT_ID}-discord-token \
-     --data-file=- --project="${AGENT_PROJECT_ID}"
-   ```
+### 1. Create the Discord application + bot
 
-3. **In the Forum's Firestore** (`agents/{agent_id}`), add a `discord`
-   platform block:
-   ```json
-   {
-     "platform": "discord",
-     "enabled": true,
-     "discord_bot_token_secret": "<bot_account_id>-discord-token",
-     "discord_bot_token_project_id": "<agent-project-id>",
-     "discord_worker_service_account": "discord-worker@<forum-project>.iam.gserviceaccount.com"
-   }
-   ```
+The Discord Developer Portal UI is a bit confusing if you're new to
+Discord. The concrete click-path:
 
-4. **Wait** up to `AGENT_REFRESH_INTERVAL_SECONDS` (default 300s) for
-   the worker to reconcile. Or force an immediate reconcile with
-   `gcloud compute instances reset discord-worker`.
+1. Go to <https://discord.com/developers/applications> → **New
+   Application**. Register it and fill out the **General Information**
+   tab. Copy the **Application ID** from this tab — you'll need it in
+   step 3.
+2. **Bot** tab → enable **Message Content Intent** and **Direct
+   Messages Intent**. Without these the worker connects but receives
+   nothing (you'll see `PrivilegedIntentsRequired` for that agent in
+   the worker logs).
+3. **Bot** tab → **Reset Token** → copy the token (shown once).
+4. **Installation** → **Default Install Settings** → make sure
+   **Guild Install** scopes include `bot`, and add bot permissions
+   `Send Messages`, `Read Message History`, and `Manage Messages`.
+5. Copy the **install link** from that same page and open it in a
+   browser to add the bot to your Discord server. Once the "bot
+   joined" system message appears in the server, click on the bot's
+   name in that message to open a DM with it — that's the simplest
+   way to test the end-to-end flow.
 
-5. **Invite the bot** (Developer Portal → OAuth2 → URL Generator,
-   scopes: `bot`, permissions: `Send Messages` + `Read Message History`)
-   and DM it.
+More complex server-side wiring — channel-specific permissions, slash
+commands, role mentions — is not required for the basic DM flow.
+Document that as a follow-up if your agent needs it.
+
+### 2. Provision the bot-token secret
+
+The bot-token secret container is provisioned by the agent-project
+terraform template's SECTION 5. After `terraform apply` (which also
+creates the two cross-project IAM bindings — worker VM SA for inbound
+Gateway, Forum's Cloud Run compute SA for outbound REST replies),
+populate the secret value:
+
+```bash
+echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add \
+  "${BOT_ACCOUNT_ID}-discord-token" \
+  --data-file=- --project="${AGENT_PROJECT_ID}"
+```
+
+### 3. Set the Application ID in tfvars and register
+
+Set the Application ID copied in step 1.1 in `terraform.tfvars`:
+
+```hcl
+discord_application_id = "1234567890123456789"
+```
+
+Then run `register_agent.py` from the agent repo. It auto-detects
+every platform whose secret is populated in the agent's project,
+validates each token via the platform's native API (Discord's
+`users/@me` for the Discord block), and writes the resulting
+`platforms` array to the agent's Firestore doc:
+
+```bash
+python register_agent.py \
+  --agent-name "My Agent" \
+  --vertex-ai-agent-id projects/.../reasoningEngines/...
+```
+
+The Discord entry it writes looks like:
+
+```json
+{
+  "platform": "discord",
+  "enabled": true,
+  "discord_bot_token_secret": "<bot_account_id>-discord-token",
+  "discord_bot_token_project_id": "<agent-project-id>",
+  "discord_application_id": "1234567890123456789",
+  "discord_worker_service_account": "discord-worker@<forum-project>.iam.gserviceaccount.com"
+}
+```
+
+If the Discord secret is populated but `discord_application_id` is
+empty, `register_agent.py` refuses to write the Discord block (better
+to fail loud than write an unidentifiable agent into Firestore).
+
+### 4. Wait for the worker to reconcile
+
+The worker re-reads Firestore every `AGENT_REFRESH_INTERVAL_SECONDS`
+(default 300s). To force an immediate reconcile from the Forum project:
+
+```bash
+gcloud compute instances reset discord-worker \
+  --zone=us-central1-a --project=<forum-project>
+```
+
+Then DM the bot to verify the end-to-end path. The worker logs the
+successful connection as `Agent <id> online as <BotName>#<discrim>`
+and each forwarded message as `Forwarded DM agent=<id> user_id=...
+msg_id=...`.
 
 ## Redeploy runbook
 

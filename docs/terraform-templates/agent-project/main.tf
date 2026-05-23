@@ -262,15 +262,32 @@ resource "google_storage_bucket" "staging" {
 # echo -n "YOUR_DISCORD_BOT_TOKEN" | gcloud secrets versions add ${var.bot_account_id}-discord-token \
 #   --data-file=- --project=${var.project_id}
 
-# # Grant the middleware's discord-worker SA cross-project read access to
-# # the bot token. This is the SA on the middleware's e2-micro VM that
-# # holds the Discord Gateway connections. It is NOT the same SA used by
-# # the Forum's Cloud Run service (which is the default compute SA).
+# # Discord needs TWO cross-project secretAccessor bindings — one binding alone
+# # is not enough:
+# #
+# #   (a) discord-worker VM SA — reads the token at startup to open the inbound
+# #       Gateway WebSocket. This is the SA on the middleware's multi-tenant
+# #       e2-micro VM.
+# #   (b) Forum's Cloud Run compute SA (the project's default compute SA in
+# #       the middleware project) — reads the token whenever the Forum needs
+# #       to send an OUTBOUND reply via Discord's REST API. The worker only
+# #       handles inbound events.
+# #
+# # If you only grant (a), inbound DMs reach the Forum but every reply fails
+# # with a 403/permission-denied when the Forum tries to load the token.
+#
 # resource "google_secret_manager_secret_iam_member" "discord_token_worker_accessor" {
 #   project   = google_project.agent_project.project_id
 #   secret_id = google_secret_manager_secret.discord_bot_token.secret_id
 #   role      = "roles/secretmanager.secretAccessor"
 #   member    = "serviceAccount:discord-worker@${var.middleware_project_id}.iam.gserviceaccount.com"
+# }
+#
+# resource "google_secret_manager_secret_iam_member" "discord_token_accessor" {
+#   project   = google_project.agent_project.project_id
+#   secret_id = google_secret_manager_secret.discord_bot_token.secret_id
+#   role      = "roles/secretmanager.secretAccessor"
+#   member    = "serviceAccount:${data.google_project.middleware.number}-compute@developer.gserviceaccount.com"
 # }
 
 # ==============================================================================
