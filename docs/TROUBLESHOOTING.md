@@ -105,7 +105,7 @@ The pattern `function_call=N function_response=0` means N tools were called but 
 **Common causes**:
 
 1. **Agent doesn't handle images**: User sent an image but the agent isn't configured for multimodal input
-   - **Solution**: Update agent to handle the `images` parameter (see [Receiving Images from Slack](FOR_AGENT_DEVELOPERS.md#receiving-images-from-slack))
+   - **Solution**: Update agent to handle the `images` parameter — see Agent-Template's multimodal example, and [What The Forum Sends Your Agent](FOR_AGENT_DEVELOPERS.md#what-the-forum-sends-your-agent) for the message shape
 
 2. **Agent crashed or timed out**: The agent encountered an error during processing
    - **Solution**: Check Vertex AI logs for errors:
@@ -611,7 +611,7 @@ python scripts/setup_firestore.py --project-id YOUR_PROJECT_ID
 
 3. **Check agent code handles `gcs_uri` field**:
    - Agent must check for `gcs_uri` in the images array
-   - See [FOR_AGENT_DEVELOPERS.md](FOR_AGENT_DEVELOPERS.md#receiving-images-from-slack)
+   - See [What The Forum Sends Your Agent](FOR_AGENT_DEVELOPERS.md#what-the-forum-sends-your-agent) for the message contract
 
 ### GCS bucket not configured (base64 fallback)
 
@@ -627,7 +627,7 @@ GCS_BUCKET_NAME=your-project-slack-files
 # Then restart the middleware
 ```
 
-See [Setting Up GCS for Image Storage](FOR_AGENT_DEVELOPERS.md#setting-up-gcs-for-image-storage) for full setup instructions.
+See [GCS Image Storage (Forum-operator setup)](FOR_AGENT_DEVELOPERS.md#gcs-image-storage-forum-operator-setup) for full setup instructions.
 
 ---
 
