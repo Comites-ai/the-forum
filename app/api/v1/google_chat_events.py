@@ -135,9 +135,8 @@ async def google_chat_events_for_agent(
     Google Chat Events API endpoint for a specific agent.
 
     Handles message events from Google Chat for a specific agent identified by agent_id.
-    Each Google Chat bot should be configured to send webhooks to its own URL:
-    - /api/v1/google-chat/events/hynoYrK8SLdiroWvhe1M (Sam the Som)
-    - /api/v1/google-chat/events/UneGKRAUpYvrjqzAHui9 (Growth Coach)
+    Each Google Chat bot should be configured to send webhooks to its own URL of the form
+    /api/v1/google-chat/events/<agent-firestore-doc-id>.
 
     Returns 200 immediately. Processes events in background.
     """
