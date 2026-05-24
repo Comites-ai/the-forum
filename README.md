@@ -520,7 +520,6 @@ Using Telegram as the reference implementation:
 
 **6. Update Documentation**
 - [ ] Update README.md features and architecture
-- [ ] Add platform setup guide to [FOR_AGENT_DEVELOPERS.md](docs/FOR_AGENT_DEVELOPERS.md)
 - [ ] Add troubleshooting section
 - [ ] Document credential creation and configuration
 
