@@ -520,7 +520,6 @@ Using Telegram as the reference implementation:
 
 **6. Update Documentation**
 - [ ] Update README.md features and architecture
-- [ ] Add platform setup guide to [FOR_AGENT_DEVELOPERS.md](docs/FOR_AGENT_DEVELOPERS.md)
 - [ ] Add troubleshooting section
 - [ ] Document credential creation and configuration
 
@@ -578,8 +577,7 @@ Using Telegram as the reference implementation:
 
 ### Platform Integration
 - [Slack Setup Guide](docs/SLACK_SETUP.md) - Detailed Slack app creation
-- **[For Agent Developers](docs/FOR_AGENT_DEVELOPERS.md)** - Complete guide for deploying agents (Slack + Google Chat + Telegram)
-  - Copy this to your agent repository for easy reference
+- **[For Agent Developers](docs/FOR_AGENT_DEVELOPERS.md)** - Forum-side contract for agent developers (message shape, hosted services, error handling). Start a new agent at [Agent-Template](https://github.com/Comites-ai/Agent-Template).
 
 ### Development & Operations
 - [Agent Deployment](docs/AGENT_DEPLOYMENT.md) - How to deploy/update agents

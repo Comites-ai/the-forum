@@ -370,7 +370,7 @@ class Agent(BaseModel):
 
 ### Step 5: Add Terraform Secret Template
 
-Edit `docs/terraform-templates/agent-project/main.tf`:
+This step happens in the **Agent-Template repo** ([github.com/Comites-ai/Agent-Template](https://github.com/Comites-ai/Agent-Template)), not this Forum repo. Edit `terraform/main.tf` there.
 
 Add a new section for the platform (follow the pattern of SECTION 4: TELEGRAM):
 
@@ -431,7 +431,8 @@ output "myplatform_setup_instructions" {
        URL: https://the-forum-mqwj7cavdq-uc.a.run.app/api/v1/myplatform/events
        Secret: <generate a random secret token>
 
-    6. Register agent with middleware Firestore (see FOR_AGENT_DEVELOPERS.md)
+    6. Register agent with Forum's Firestore: run register_agent.py from
+       the Agent-Template repo (it auto-detects platforms from secrets).
   EOT
 }
 ```
@@ -458,67 +459,51 @@ Update the feature list:
 
 Update the architecture diagram or platform list.
 
-#### B. Add to FOR_AGENT_DEVELOPERS.md
+#### B. Add to Agent-Template
 
-Add a complete section for creating a new agent on the platform:
+The per-platform onboarding flow lives in the [Agent-Template](https://github.com/Comites-ai/Agent-Template) repo, so adding a new platform requires two changes there in addition to the terraform section from Step 5:
 
-```markdown
-## Creating a Brand New Agent - MyPlatform
+**B1. Teach `register_agent.py` to auto-detect the new platform.**
 
-### Step 1: Create MyPlatform Bot
+Add a `validate_myplatform()` function that hits the platform's native auth-ping API and returns the bot's user_id (or equivalent), then wire it into `build_platforms()` alongside the existing Slack / Telegram / Discord / Google Chat probes. Pattern from the existing Discord validator:
 
-1. Go to MyPlatform's bot creation portal
-2. Create a new bot and copy the bot token
+```python
+def validate_myplatform(token: str) -> str:
+    """Call MyPlatform's auth endpoint. Returns the bot user_id."""
+    req = urllib.request.Request(
+        "https://api.myplatform.example/v1/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        sys.exit(f"  [x] MyPlatform /me failed: HTTP {e.code} {e.reason}")
+    bot_id = data.get("id")
+    if not bot_id:
+        sys.exit(f"  [x] MyPlatform /me returned unexpected payload: {data}")
+    print(f"  [OK] MyPlatform:  bot @{data.get('username')} (id {bot_id})")
+    return bot_id
 
-### Step 2: Store Bot Token in Secret Manager
 
-```bash
-# Create secret
-gcloud secrets create my-agent-myplatform-token \
-  --project=my-agent-prod \
-  --replication-policy=automatic
-
-# Store token
-echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add my-agent-myplatform-token \
-  --project=my-agent-prod \
-  --data-file=-
-
-# Grant middleware access
-gcloud secrets add-iam-policy-binding my-agent-myplatform-token \
-  --project=my-agent-prod \
-  --member="serviceAccount:the-forum@vertex-ai-middleware-prod.iam.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor"
+# Inside build_platforms(), after the existing platform probes:
+myplatform_secret = f"{bot_account_id}-myplatform-token"
+if secret_exists(sm_client, agent_project, myplatform_secret):
+    token = access_secret(sm_client, agent_project, myplatform_secret)
+    bot_id = validate_myplatform(token)
+    platforms.append({
+        "platform": "myplatform",
+        "enabled": True,
+        "myplatform_bot_id": bot_id,
+        "myplatform_bot_token_secret": myplatform_secret,
+        "myplatform_bot_token_project_id": agent_project,
+        # add any other platform-specific fields the Forum-side connector reads
+    })
 ```
 
-### Step 3: Configure MyPlatform Webhook
+**B2. Update Agent-Template's README** to document the new platform alongside Slack / Google Chat / Telegram / Discord in its setup walkthrough. The `get_started_linux.sh` bootstrap reads the section list, so make sure the new platform shows up in the platform-toggle prompts.
 
-Set your bot's webhook URL to:
-```
-https://the-forum-mqwj7cavdq-uc.a.run.app/api/v1/myplatform/events
-```
-
-### Step 4: Register Agent with Middleware
-
-Add MyPlatform platform to your agent's Firestore document:
-
-```json
-{
-  "platforms": [
-    {
-      "platform": "myplatform",
-      "enabled": true,
-      "myplatform_bot_token_secret": "my-agent-myplatform-token",
-      "myplatform_bot_token_project_id": "my-agent-prod",
-      "myplatform_webhook_secret": "your-random-secret-token"
-    }
-  ]
-}
-```
-
-### Step 5: Test Your MyPlatform Bot
-
-Send a message to your bot on MyPlatform!
-```
+#### C. (Forum side) FOR_AGENT_DEVELOPERS.md only needs an update if your platform's message contract has nuances beyond `user_id` / `session_id` / `message` / `images`. The "What The Forum Sends Your Agent" section is platform-agnostic by design; only edit it if the new platform changes something visible to the agent (e.g., a different identity-prefix format in the `message` field).
 
 ### Step 7: Update Identity Linking Script
 
@@ -764,23 +749,24 @@ The Telegram integration (commit `7b49a11`) is a complete reference implementati
 - `app/api/v1/routes.py`
   - Registered `telegram_events.router`
 
-- `docs/terraform-templates/agent-project/main.tf`
-  - Added SECTION 4: TELEGRAM-SPECIFIC INFRASTRUCTURE
-  - Added terraform outputs with setup instructions
-
-- `docs/terraform-templates/agent-project/variables.tf`
-  - Made descriptions platform-agnostic
-
-- `docs/terraform-templates/agent-project/terraform.tfvars.example`
-  - Added platform-specific notes section
-
 - `README.md`
   - Added "Adding a New Platform" guide
   - Updated feature list
 
-- `docs/FOR_AGENT_DEVELOPERS.md`
-  - Added complete Telegram integration guide
-  - Added identity linking section
+In the **Agent-Template repo** (separate; github.com/Comites-ai/Agent-Template):
+
+- `terraform/main.tf`
+  - Added SECTION 4: TELEGRAM-SPECIFIC INFRASTRUCTURE
+  - Added terraform outputs with setup instructions
+
+- `terraform/variables.tf`
+  - Made descriptions platform-agnostic
+
+- `terraform/terraform.tfvars.example`
+  - Added platform-specific notes section
+
+- `register_agent.py`
+  - Added `validate_telegram()` and wired it into `build_platforms()`
 
 ### Key Metrics
 

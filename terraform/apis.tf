@@ -50,6 +50,26 @@ resource "google_project_service" "logging" {
   disable_on_destroy = false
 }
 
+# IAM and IAM Credentials APIs — required for the Agent Template pattern,
+# where each agent's per-project SA is attached to a Reasoning Engine
+# deployed into this Forum project. iamcredentials is the load-bearing
+# one: it backs generateAccessToken calls when Vertex AI mints
+# short-lived tokens for the cross-project SA at runtime. GCP auto-enables
+# it on first use, but the auto-enable lags cold start — without explicit
+# enablement, the Reasoning Engine deploys cleanly and then 500s on the
+# first user message. iam.googleapis.com is included for the same
+# explicit-is-better-than-implicit reason; usually auto-enabled, but
+# managing IAM bindings depends on it.
+resource "google_project_service" "iam" {
+  service            = "iam.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "iamcredentials" {
+  service            = "iamcredentials.googleapis.com"
+  disable_on_destroy = false
+}
+
 # Compute Engine API — needed only by the discord-worker VM. Gated on
 # var.use_discord so a default-config terraform apply does not enable
 # this API on projects that don't want it. API enablement itself is free
