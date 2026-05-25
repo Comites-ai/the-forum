@@ -2,7 +2,7 @@
 
 resource "google_cloud_scheduler_job" "scheduled_jobs_dispatcher" {
   name             = var.scheduler_job_name
-  description      = "Triggers scheduled job processing every minute"
+  description      = "Triggers scheduled job processing every 5 minutes"
   schedule         = var.scheduler_cron_schedule
   time_zone        = "UTC"
   attempt_deadline = "320s"

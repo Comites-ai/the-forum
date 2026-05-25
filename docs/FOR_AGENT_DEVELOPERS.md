@@ -407,8 +407,8 @@ interactive messages), the Forum tracks them in Firestore:
 - `Tool 'X' hit rate limit` — tool was throttled
 - `Empty response (N chunks)` — agent returned no text (generic)
 
-**User notification:** if a job fails 1440 consecutive times (~24 hours
-with a per-minute dispatcher), the user receives:
+**User notification:** if a job fails 288 consecutive times (~24 hours
+with the default 5-minute dispatcher), the user receives:
 
 > My scheduled job *{job_name}* has not been working since {last_execution_at}.
 

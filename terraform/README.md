@@ -16,7 +16,7 @@ For most users, [`../scripts/install.sh`](../scripts/install.sh) is the easiest 
   - `${PROJECT_ID}-slack-files` — temporary storage for uploaded Slack files (1-day lifecycle).
   - `${PROJECT_ID}-staging` — staging bucket for ADK Agent Engine deploys (7-day lifecycle, force_destroy=false).
 - **Cloud Run**: The Forum service. Initial revision uses a public hello-world placeholder image (`us-docker.pkg.dev/cloudrun/container/hello`); `scripts/deploy_forum.sh` swaps in the real image via Cloud Build.
-- **Cloud Scheduler**: `scheduled-jobs-dispatcher` — invokes Cloud Run every minute.
+- **Cloud Scheduler**: `scheduled-jobs-dispatcher` — invokes Cloud Run every 5 minutes.
 
 **Note**: Agent-specific infrastructure (like Google Chat bot service accounts) should be created in separate terraform configurations. See [../docs/terraform-templates/](../docs/terraform-templates/) for templates.
 

@@ -190,9 +190,9 @@ class ScheduledJobExecutorV2:
                 logger.warning(f"Job {job_id} failed: {error_msg}")
                 await self.firestore.release_job_execution_lock(job_id, success=False, error=error_msg)
 
-                # Notify user every 1440 consecutive failures (~24 hours if job runs every minute)
+                # Notify user every 288 consecutive failures (~24 hours if dispatcher runs every 5 minutes)
                 new_failure_count = job.consecutive_failures + 1
-                if new_failure_count % 1440 == 0:
+                if new_failure_count % 288 == 0:
                     last_success = job.last_execution_at
                     if last_success:
                         since_str = last_success.strftime("%Y-%m-%d %H:%M UTC")

@@ -293,7 +293,7 @@ async def process_due_jobs(
     Process all scheduled jobs that are due.
 
     This endpoint is called by a single Cloud Scheduler dispatcher job
-    (typically every minute). It queries Firestore for enabled jobs,
+    (every 5 minutes by default). It queries Firestore for enabled jobs,
     checks which ones are due based on their cron schedule, and executes them.
 
     Protected by OIDC token verification from Cloud Scheduler.

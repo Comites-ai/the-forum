@@ -385,7 +385,7 @@ return JSONResponse(content={"success": True})
 
 ### "My scheduled job *{job_name}* has not been working since..."
 
-**When it appears**: User receives this notification when their scheduled job has failed 1440 consecutive times (~24 hours if the dispatcher runs every minute).
+**When it appears**: User receives this notification when their scheduled job has failed 288 consecutive times (~24 hours with the default 5-minute dispatcher).
 
 **Common causes**:
 
