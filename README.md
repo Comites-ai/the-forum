@@ -16,6 +16,8 @@ At **Comites.ai**, we're bringing this concept into the AI age:
 
 Build your own council of AI advisors. Deploy them to Slack, Google Chat, Telegram, or Discord. Let them help you navigate your domain.
 
+**Project home:** [comites.ai](https://comites.ai) — the broader vision, an [architecture overview](https://comites.ai/architecture) (with the cross-project security model explained visually), a [developer walkthrough](https://comites.ai/developers), and the [marketplace](https://comites.ai/marketplace) where finished agents live.
+
 ## Features
 
 - **Multi-Platform Support**: Slack, Google Chat, Telegram, and Discord with unified architecture
@@ -561,7 +563,6 @@ Using Telegram as the reference implementation:
 ### Future Platform Ideas
 
 - **WhatsApp Business API** - Enterprise messaging
-- **Discord** - Community and gaming
 - **Microsoft Teams** - Enterprise collaboration
 - **Line** - Popular in Asia
 - **Facebook Messenger** - Social integration
@@ -569,19 +570,23 @@ Using Telegram as the reference implementation:
 
 ## Documentation
 
-### Setup & Infrastructure
-- **[Terraform README](terraform/README.md)** - The Forum infrastructure deployment
-- **[Terraform Templates](docs/terraform-templates/)** - Templates for agent-specific infrastructure
-  - [Agent Project Template](docs/terraform-templates/agent-project/) - Dedicated GCP project for agents requiring separate projects
-- [GCP Setup Guide](docs/GCP_SETUP.md) - GCP project configuration
+### Start here (project-level)
+- [comites.ai](https://comites.ai) — project home, marketplace, team
+- [comites.ai/architecture](https://comites.ai/architecture) — visual overview of how the Forum, agent projects, and Vertex AI fit together
+- [comites.ai/developers](https://comites.ai/developers) — six-step builder walkthrough that links back into this repo
 
-### Platform Integration
-- [Slack Setup Guide](docs/SLACK_SETUP.md) - Detailed Slack app creation
-- **[For Agent Developers](docs/FOR_AGENT_DEVELOPERS.md)** - Forum-side contract for agent developers (message shape, hosted services, error handling). Start a new agent at [Agent-Template](https://github.com/Comites-ai/Agent-Template).
+### In this repo
+- [AGENTS.md](AGENTS.md) — instructions for AI coding assistants (split into operator vs. contributor sections)
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute (AGPL-3.0 + CLA)
+- [terraform/README.md](terraform/README.md) — Forum infrastructure: what it provisions and how to apply
+- **[docs/FOR_AGENT_DEVELOPERS.md](docs/FOR_AGENT_DEVELOPERS.md)** — Forum-side contract for agent developers: message shape, hosted services, error handling
+- [docs/ADMIN_UI.md](docs/ADMIN_UI.md) — optional `/admin` console (Google OAuth-gated)
+- [docs/DISCORD_WORKER.md](docs/DISCORD_WORKER.md) — Discord multi-tenant Gateway worker
+- [docs/ADDING_A_NEW_PLATFORM.md](docs/ADDING_A_NEW_PLATFORM.md) — guide for adding a new chat platform (spans this repo + Agent-Template)
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — common issues
 
-### Development & Operations
-- [Agent Deployment](docs/AGENT_DEPLOYMENT.md) - How to deploy/update agents
-- [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues
+### Sibling repos
+- [Agent-Template](https://github.com/Comites-ai/Agent-Template) — starting point for new agents; clone it instead of editing this repo
 
 ## Source Code Access
 

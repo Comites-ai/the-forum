@@ -13,6 +13,14 @@ distinct audiences, and the right behavior differs between them:
 If the human you're working with is unclear which mode they're in,
 ask before doing scope-expanding or destructive work.
 
+**Project-level context** lives on the website rather than in this
+repo. [comites.ai/architecture](https://comites.ai/architecture)
+explains *why* the design looks the way it does (the cross-project
+SA pattern, the per-agent GCP project for blast-radius isolation,
+the Forum's central Reasoning Engine choice).
+[comites.ai/developers](https://comites.ai/developers) is the
+six-step builder walkthrough that points at this repo and Agent-Template.
+
 ---
 
 ## Section 1: Instructions for Coding Assistants of People Who Are Deploying The Forum and Running Agents
