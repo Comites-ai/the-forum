@@ -474,17 +474,16 @@ gcloud logging read \
    gcloud firestore databases list
    ```
 
-### "Database not found" or setup_firestore.py fails
+### "Database not found"
 
-**Symptoms**: Running setup_firestore.py fails with database errors
+**Symptoms**: App requests fail with `404 The Firestore database does not exist`.
 
-**Root Cause**: Firestore database doesn't exist in the project yet.
+**Root Cause**: Firestore database hasn't been created in the project yet.
 
-**Solution**: Run terraform — Firestore is now part of [`terraform/firestore.tf`](../terraform/firestore.tf) and `terraform apply` (or `scripts/install.sh`) will create the `(default)` database for you. If you've already applied terraform and still hit this, authenticate with ADC:
+**Solution**: Firestore is provisioned by [`terraform/firestore.tf`](../terraform/firestore.tf); `terraform apply` (or `scripts/install.sh`) creates the `(default)` database. Collections are auto-created lazily by the app on first write — no separate init step. If you've already applied terraform and still hit this from local code, authenticate with ADC:
 
 ```bash
 gcloud auth application-default login
-python scripts/setup_firestore.py --project-id YOUR_PROJECT_ID
 ```
 
 ### Agent not found in Firestore
