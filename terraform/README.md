@@ -18,7 +18,7 @@ For most users, [`../scripts/install.sh`](../scripts/install.sh) is the easiest 
 - **Cloud Run**: The Forum service. Initial revision uses a public hello-world placeholder image (`us-docker.pkg.dev/cloudrun/container/hello`); `scripts/deploy_forum.sh` swaps in the real image via Cloud Build.
 - **Cloud Scheduler**: `scheduled-jobs-dispatcher` — invokes Cloud Run every 5 minutes.
 
-**Note**: Agent-specific infrastructure (like Google Chat bot service accounts) should be created in separate terraform configurations. See [../docs/terraform-templates/](../docs/terraform-templates/) for templates.
+**Note**: Agent-specific infrastructure (per-agent GCP project, Google Chat bot service account, platform-token secrets) is provisioned by the [Agent-Template](https://github.com/Comites-ai/Agent-Template) repo's `terraform/`, not here. The Forum's terraform only manages the Forum project itself.
 
 ## Prerequisites
 
@@ -182,9 +182,7 @@ If you set `use_slack = false`, terraform won't create the container and `script
 
 ### 2. Configure Agent-Specific Infrastructure
 
-For each agent that uses Google Chat:
-1. See [../docs/terraform-templates/agent-project/](../docs/terraform-templates/agent-project/) for terraform templates
-2. Follow [../docs/FOR_AGENT_DEVELOPERS.md](../docs/FOR_AGENT_DEVELOPERS.md) for complete setup instructions
+Each agent's per-project infrastructure (GCP project, service account, platform-token secrets, cross-project IAM bindings into the Forum) is provisioned by [Agent-Template](https://github.com/Comites-ai/Agent-Template) — clone it and follow its README. [`../docs/FOR_AGENT_DEVELOPERS.md`](../docs/FOR_AGENT_DEVELOPERS.md) documents the Forum-side contract those agents talk to.
 
 ### 3. Deploy The Forum to Cloud Run
 

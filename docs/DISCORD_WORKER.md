@@ -53,7 +53,7 @@ trigger a clean restart.
 |---|---|---|
 | Worker VM, SA, Artifact Registry repo | **Forum's** project | `terraform/discord_worker.tf` (gated on `var.use_discord`) |
 | Forum's Firestore `agents` collection | **Forum's** project | (existing) |
-| Each agent's `discord-bot-token` secret container | **Agent's** project | `docs/terraform-templates/agent-project/main.tf` SECTION 5 |
+| Each agent's `discord-bot-token` secret container | **Agent's** project | [Agent-Template](https://github.com/Comites-ai/Agent-Template) `terraform/main.tf` SECTION 5 |
 | Cross-project `secretAccessor` grant on each token | **Agent's** project | same as above |
 | Each agent's bot token value | **Agent's** project | `gcloud secrets versions add` (out-of-band, never in terraform) |
 

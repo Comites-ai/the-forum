@@ -515,10 +515,10 @@ Using Telegram as the reference implementation:
 - [ ] Add convenience method `get_{platform}_config()`
 - [ ] Update platform field description to include new platform
 
-**5. Add Terraform Secret Template** ([docs/terraform-templates/agent-project/main.tf](docs/terraform-templates/agent-project/main.tf))
+**5. Add Terraform Secret Template** (in [Agent-Template](https://github.com/Comites-ai/Agent-Template)'s `terraform/main.tf`)
 - [ ] Add commented section for platform-specific secrets
 - [ ] Include instructions for token storage
-- [ ] Add IAM binding instructions for The Forum access
+- [ ] Add cross-project IAM binding for the Forum's compute SA to read the secret
 
 **6. Update Documentation**
 - [ ] Update README.md features and architecture
