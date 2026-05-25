@@ -98,8 +98,8 @@ All platform-specific logic is isolated in connectors, making it easy to add new
 
 ```bash
 # Clone repository
-git clone <your-repo-url>
-cd slack_to_agent_integration
+git clone https://github.com/Comites-ai/the-forum.git
+cd the-forum
 
 # Create virtual environment (use python3.11 or python3.12)
 python3 -m venv venv
@@ -348,32 +348,45 @@ python scripts/deploy_agent.py \
 ## Project Structure
 
 ```
-slack_to_agent_integration/
+the-forum/
 ├── app/
-│   ├── main.py                 # FastAPI app + lifespan
-│   ├── config.py               # Pydantic Settings
-│   ├── api/v1/                 # API endpoints
-│   │   ├── slack_events.py     # Slack Events API
-│   │   └── routes.py           # Route aggregation
-│   ├── services/               # Business logic
+│   ├── main.py                       # FastAPI app + lifespan
+│   ├── config.py                     # Pydantic Settings
+│   ├── api/
+│   │   ├── admin/                    # /admin OAuth-gated console
+│   │   └── v1/                       # public + platform webhooks
+│   │       ├── slack_events_v2.py
+│   │       ├── google_chat_events.py
+│   │       ├── telegram_events.py
+│   │       ├── discord_events.py
+│   │       ├── scheduled_jobs.py
+│   │       ├── scheduler_mcp.py      # the Forum's one hosted MCP
+│   │       └── routes.py
+│   ├── services/
+│   │   ├── message_processor_v2.py   # platform → Vertex AI fan-in
 │   │   ├── firestore_service.py
 │   │   ├── vertex_ai_service.py
-│   │   ├── slack_service.py
-│   │   └── message_processor.py
-│   ├── models/                 # Data models
-│   │   ├── agent.py
-│   │   └── session.py
-│   └── schemas/                # Pydantic schemas
-│       └── slack.py
-├── scripts/
-│   ├── deploy_agent.py         # Agent deployment script
-│   └── setup_firestore.py      # Firestore initialization
-├── docs/                       # Detailed documentation
+│   │   ├── identity_service.py
+│   │   ├── scheduled_job_service.py
+│   │   ├── scheduled_job_executor_v2.py
+│   │   └── platforms/                # one connector per platform
+│   │       ├── slack_connector.py
+│   │       ├── google_chat_connector.py
+│   │       ├── telegram_connector.py
+│   │       └── discord_connector.py
+│   ├── models/                       # agent.py, user.py, session.py, …
+│   ├── schemas/                      # pydantic platform_event, etc.
+│   └── core/                         # DI wiring + exceptions
+├── discord-worker/                   # multi-tenant Gateway worker (separate VM)
+├── terraform/                        # Forum infrastructure
+├── scripts/                          # install.sh, deploy_forum.sh, operator tools
+├── tests/                            # pytest suite + per-platform fixtures
+├── docs/                             # see Documentation section below
 ├── Dockerfile
 ├── cloudbuild.yaml
 ├── requirements.txt
-├── .env.example
-└── README.md
+├── requirements-dev.txt
+└── .env.example
 ```
 
 ## Troubleshooting
@@ -387,7 +400,7 @@ slack_to_agent_integration/
 - **Check Slack Events**: Ensure Request URL is verified (green checkmark)
 - **Check logs**:
   - Local: Terminal output
-  - Production: `gcloud run logs read the-forum --region us-central1`
+  - Production: `gcloud run services logs read the-forum --region us-central1`
 
 ### "Agent not found" error
 
@@ -409,7 +422,7 @@ curl -s https://slack.com/api/auth.test \
 **Solution**:
 1. Check logs to see which bot is failing:
    ```bash
-   gcloud run logs read the-forum --region us-central1 --limit 50 | grep "401\|Invalid"
+   gcloud run services logs read the-forum --region us-central1 --limit 50 | grep "401\|Invalid"
    ```
 2. Ensure **all** Slack signing secrets are in your `.env` file (comma-separated):
    ```bash
@@ -461,7 +474,7 @@ pip install aiohttp
 
 ## Adding a New Platform
 
-The Forum's platform abstraction makes it straightforward to add new messaging platforms (WhatsApp, Discord, Microsoft Teams, etc.). Telegram serves as the reference implementation for this process.
+The Forum's platform abstraction makes it straightforward to add new messaging platforms (WhatsApp, Microsoft Teams, Line, etc.). Telegram and Discord are the reference implementations for this process.
 
 ### Architecture Overview
 

@@ -194,7 +194,7 @@ The pattern `function_call=N function_response=0` means N tools were called but 
    # Watch terminal running uvicorn
 
    # Production:
-   gcloud run logs read the-forum \
+   gcloud run services logs read the-forum \
      --region us-central1 \
      --limit 50
    ```
@@ -239,7 +239,7 @@ The pattern `function_call=N function_response=0` means N tools were called but 
 
 **Root Cause**: Slack retries event delivery if the webhook doesn't respond quickly enough (within ~3 seconds). Each retry is processed as a new event, creating a new Vertex AI session and sending another response.
 
-**Solution**: The Forum handles this by checking for the `X-Slack-Retry-Num` header and immediately acknowledging retries without reprocessing. If you're seeing this issue, ensure your deployed version includes this retry handling in `app/api/v1/slack_events.py`.
+**Solution**: The Forum handles this by checking for the `X-Slack-Retry-Num` header and immediately acknowledging retries without reprocessing. If you're seeing this issue, ensure your deployed version includes this retry handling in [app/api/v1/slack_events_v2.py](../app/api/v1/slack_events_v2.py).
 
 **How to verify**: Check Cloud Run logs for entries like:
 ```
@@ -313,7 +313,7 @@ return JSONResponse(content={"status": "ok"})
 return JSONResponse(content={"success": True})
 ```
 
-**Where to check**: In [app/api/v1/google_chat_events.py](app/api/v1/google_chat_events.py), ensure you're using the pattern that matches your processing model.
+**Where to check**: In [app/api/v1/google_chat_events.py](../app/api/v1/google_chat_events.py), ensure you're using the pattern that matches your processing model.
 
 ---
 
@@ -533,7 +533,7 @@ gcloud auth application-default login
 
 3. **Check logs for errors**:
    ```bash
-   gcloud run logs read the-forum \
+   gcloud run services logs read the-forum \
      --region us-central1 \
      --format json | grep session
    ```
@@ -583,7 +583,7 @@ gcloud auth application-default login
 
 5. **Check The Forum logs for specific error**:
    ```bash
-   gcloud run logs read the-forum \
+   gcloud run services logs read the-forum \
      --region us-central1 \
      --limit 50 | grep -i "gcs\|upload\|bucket"
    ```
@@ -779,7 +779,7 @@ pip install aiohttp
 
 3. **Review startup logs**:
    ```bash
-   gcloud run logs read the-forum \
+   gcloud run services logs read the-forum \
      --region us-central1 \
      --limit 100
    ```
@@ -873,7 +873,7 @@ If you've tried the above and still have issues:
 
 1. **Check full logs**:
    ```bash
-   gcloud run logs read the-forum \
+   gcloud run services logs read the-forum \
      --region us-central1 \
      --format json \
      --limit 100 > logs.json
