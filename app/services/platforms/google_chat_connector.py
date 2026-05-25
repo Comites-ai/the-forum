@@ -270,8 +270,6 @@ class GoogleChatConnector(PlatformConnector):
         try:
             # Google Chat sends a bearer token that we can verify
             # For now, we'll implement basic verification
-            # TODO: Implement proper token verification with Google's public keys
-
             auth_header = request.headers.get("Authorization", "")
             if not auth_header.startswith("Bearer "):
                 logger.warning("No Bearer token in Authorization header")
