@@ -38,7 +38,7 @@ These are error messages that users see in Slack/Google Chat/Telegram when somet
 gcloud logging read \
   'resource.type="cloud_run_revision"
    AND textPayload:"function_call=1 function_response=0"' \
-  --project=vertex-ai-middleware-prod \
+  --project=YOUR_FORUM_PROJECT_ID \
   --limit=20
 ```
 
@@ -194,7 +194,7 @@ The pattern `function_call=N function_response=0` means N tools were called but 
    # Watch terminal running uvicorn
 
    # Production:
-   gcloud run logs read the-forum \
+   gcloud run services logs read the-forum \
      --region us-central1 \
      --limit 50
    ```
@@ -239,7 +239,7 @@ The pattern `function_call=N function_response=0` means N tools were called but 
 
 **Root Cause**: Slack retries event delivery if the webhook doesn't respond quickly enough (within ~3 seconds). Each retry is processed as a new event, creating a new Vertex AI session and sending another response.
 
-**Solution**: The Forum handles this by checking for the `X-Slack-Retry-Num` header and immediately acknowledging retries without reprocessing. If you're seeing this issue, ensure your deployed version includes this retry handling in `app/api/v1/slack_events.py`.
+**Solution**: The Forum handles this by checking for the `X-Slack-Retry-Num` header and immediately acknowledging retries without reprocessing. If you're seeing this issue, ensure your deployed version includes this retry handling in [app/api/v1/slack_events_v2.py](../app/api/v1/slack_events_v2.py).
 
 **How to verify**: Check Cloud Run logs for entries like:
 ```
@@ -313,7 +313,7 @@ return JSONResponse(content={"status": "ok"})
 return JSONResponse(content={"success": True})
 ```
 
-**Where to check**: In [app/api/v1/google_chat_events.py](app/api/v1/google_chat_events.py), ensure you're using the pattern that matches your processing model.
+**Where to check**: In [app/api/v1/google_chat_events.py](../app/api/v1/google_chat_events.py), ensure you're using the pattern that matches your processing model.
 
 ---
 
@@ -385,7 +385,7 @@ return JSONResponse(content={"success": True})
 
 ### "My scheduled job *{job_name}* has not been working since..."
 
-**When it appears**: User receives this notification when their scheduled job has failed 1440 consecutive times (~24 hours if the dispatcher runs every minute).
+**When it appears**: User receives this notification when their scheduled job has failed 288 consecutive times (~24 hours with the default 5-minute dispatcher).
 
 **Common causes**:
 
@@ -398,7 +398,7 @@ return JSONResponse(content={"success": True})
 ```bash
 # Check the job's failure status in Firestore
 gcloud firestore documents describe scheduled_jobs/JOB_ID \
-  --project=vertex-ai-middleware-prod
+  --project=YOUR_FORUM_PROJECT_ID
 
 # Look for consecutive_failures and last_error fields
 ```
@@ -426,7 +426,7 @@ gcloud firestore documents describe scheduled_jobs/JOB_ID \
 gcloud logging read \
   'resource.type="cloud_run_revision"
    AND textPayload:"Job" AND textPayload:"failed"' \
-  --project=vertex-ai-middleware-prod \
+  --project=YOUR_FORUM_PROJECT_ID \
   --limit=20
 ```
 
@@ -474,17 +474,16 @@ gcloud logging read \
    gcloud firestore databases list
    ```
 
-### "Database not found" or setup_firestore.py fails
+### "Database not found"
 
-**Symptoms**: Running setup_firestore.py fails with database errors
+**Symptoms**: App requests fail with `404 The Firestore database does not exist`.
 
-**Root Cause**: Firestore database doesn't exist in the project yet.
+**Root Cause**: Firestore database hasn't been created in the project yet.
 
-**Solution**: Run terraform — Firestore is now part of [`terraform/firestore.tf`](../terraform/firestore.tf) and `terraform apply` (or `scripts/install.sh`) will create the `(default)` database for you. If you've already applied terraform and still hit this, authenticate with ADC:
+**Solution**: Firestore is provisioned by [`terraform/firestore.tf`](../terraform/firestore.tf); `terraform apply` (or `scripts/install.sh`) creates the `(default)` database. Collections are auto-created lazily by the app on first write — no separate init step. If you've already applied terraform and still hit this from local code, authenticate with ADC:
 
 ```bash
 gcloud auth application-default login
-python scripts/setup_firestore.py --project-id YOUR_PROJECT_ID
 ```
 
 ### Agent not found in Firestore
@@ -534,7 +533,7 @@ python scripts/setup_firestore.py --project-id YOUR_PROJECT_ID
 
 3. **Check logs for errors**:
    ```bash
-   gcloud run logs read the-forum \
+   gcloud run services logs read the-forum \
      --region us-central1 \
      --format json | grep session
    ```
@@ -584,7 +583,7 @@ python scripts/setup_firestore.py --project-id YOUR_PROJECT_ID
 
 5. **Check The Forum logs for specific error**:
    ```bash
-   gcloud run logs read the-forum \
+   gcloud run services logs read the-forum \
      --region us-central1 \
      --limit 50 | grep -i "gcs\|upload\|bucket"
    ```
@@ -780,7 +779,7 @@ pip install aiohttp
 
 3. **Review startup logs**:
    ```bash
-   gcloud run logs read the-forum \
+   gcloud run services logs read the-forum \
      --region us-central1 \
      --limit 100
    ```
@@ -874,7 +873,7 @@ If you've tried the above and still have issues:
 
 1. **Check full logs**:
    ```bash
-   gcloud run logs read the-forum \
+   gcloud run services logs read the-forum \
      --region us-central1 \
      --format json \
      --limit 100 > logs.json

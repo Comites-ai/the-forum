@@ -38,7 +38,7 @@ variable "scheduler_job_name" {
 variable "scheduler_cron_schedule" {
   description = "Cron schedule for the scheduler job"
   type        = string
-  default     = "* * * * *"
+  default     = "*/5 * * * *"
 }
 
 variable "use_slack" {

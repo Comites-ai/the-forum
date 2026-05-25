@@ -14,9 +14,10 @@
 # has a `discord` platform block with `enabled: true`, then opens one
 # Gateway connection per such agent in a single Python process. Bot
 # tokens live in the AGENTS' projects, not the Forum's project. The
-# agent-project terraform template (docs/terraform-templates/agent-project)
-# creates each agent's `discord-bot-token` secret and grants the Forum's
-# worker SA cross-project secretAccessor.
+# Agent-Template repo (github.com/Comites-ai/Agent-Template) provisions
+# each agent's `discord-bot-token` secret (SECTION 5 of its
+# terraform/main.tf) and the cross-project secretAccessor grant to the
+# Forum's worker SA.
 #
 # COST NOTE:
 #   The default machine_type (e2-micro) in us-central1, us-west1, or

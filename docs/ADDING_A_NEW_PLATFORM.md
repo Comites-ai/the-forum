@@ -392,12 +392,14 @@ Add a new section for the platform (follow the pattern of SECTION 4: TELEGRAM):
 #   depends_on = [google_project_service.secretmanager]
 # }
 
-# Grant middleware service account access to read MyPlatform bot token
+# Grant the Forum's compute SA access to read MyPlatform bot token.
+# Replace <forum-project-number>-compute with your Forum project's
+# default compute SA, or whatever SA your Forum Cloud Run service runs as.
 # resource "google_secret_manager_secret_iam_member" "myplatform_token_accessor" {
 #   project   = google_project.agent_project.project_id
 #   secret_id = google_secret_manager_secret.myplatform_bot_token.secret_id
 #   role      = "roles/secretmanager.secretAccessor"
-#   member    = "serviceAccount:the-forum@vertex-ai-middleware-prod.iam.gserviceaccount.com"
+#   member    = "serviceAccount:<forum-project-number>-compute@developer.gserviceaccount.com"
 # }
 ```
 
@@ -421,14 +423,14 @@ output "myplatform_setup_instructions" {
          --project=${google_project.agent_project.project_id} \
          --data-file=-
 
-    4. Grant middleware service account access:
+    4. Grant the Forum's compute SA access:
        gcloud secrets add-iam-policy-binding ${var.bot_account_id}-myplatform-token \
          --project=${google_project.agent_project.project_id} \
-         --member="serviceAccount:the-forum@vertex-ai-middleware-prod.iam.gserviceaccount.com" \
+         --member="serviceAccount:<forum-project-number>-compute@developer.gserviceaccount.com" \
          --role="roles/secretmanager.secretAccessor"
 
     5. Configure webhook in MyPlatform:
-       URL: https://the-forum-mqwj7cavdq-uc.a.run.app/api/v1/myplatform/events
+       URL: https://<your-forum-cloud-run-url>/api/v1/myplatform/events
        Secret: <generate a random secret token>
 
     6. Register agent with Forum's Firestore: run register_agent.py from
@@ -556,9 +558,9 @@ Drop the JSON fixtures into `tests/fixtures/<platform>/` (a `.gitignore` allowli
    bash scripts/deploy_forum.sh
    ```
 
-2. **Update webhook URL** to production URL:
+2. **Update webhook URL** to your production Forum URL:
    ```
-   https://the-forum-mqwj7cavdq-uc.a.run.app/api/v1/myplatform/events
+   https://<your-forum-cloud-run-url>/api/v1/myplatform/events
    ```
 
 3. **Test with real messages**
@@ -566,7 +568,7 @@ Drop the JSON fixtures into `tests/fixtures/<platform>/` (a `.gitignore` allowli
 4. **Monitor Cloud Run logs**:
    ```bash
    gcloud run services logs read the-forum \
-     --project vertex-ai-middleware-prod \
+     --project YOUR_FORUM_PROJECT_ID \
      --region us-central1 \
      --limit 50
    ```
@@ -634,9 +636,11 @@ The user ID is `123456789`.
 **Step 2: Find the user's Firestore document ID**
 
 ```bash
+# Set GCP_PROJECT_ID to your Forum project first
 python -c "
+import os
 from google.cloud import firestore
-db = firestore.Client(project='vertex-ai-middleware-prod')
+db = firestore.Client(project=os.environ['GCP_PROJECT_ID'])
 users = db.collection('users').where('email', '==', 'user@example.com').stream()
 for user in users:
     print(f'User ID: {user.id}, Name: {user.to_dict().get(\"primary_name\")}')"
@@ -657,10 +661,13 @@ If you get an error saying the identity is already linked to another user, that 
 **Step 4: Migrate identity from auto-created account**
 
 ```python
-from google.cloud import firestore
+import os
 from datetime import datetime, timezone
 
-db = firestore.Client(project='vertex-ai-middleware-prod', database='(default)')
+from google.cloud import firestore
+
+# Set GCP_PROJECT_ID to your Forum project first
+db = firestore.Client(project=os.environ['GCP_PROJECT_ID'], database='(default)')
 
 # Step 1: Remove identity from auto-created user
 auto_user_ref = db.collection('users').document('AUTO_CREATED_USER_ID')
@@ -696,8 +703,9 @@ print('Successfully migrated identity!')
 
 ```bash
 python -c "
+import os
 from google.cloud import firestore
-db = firestore.Client(project='vertex-ai-middleware-prod')
+db = firestore.Client(project=os.environ['GCP_PROJECT_ID'])
 doc = db.collection('users').document('MAIN_USER_ID').get()
 data = doc.to_dict()
 print('Identities:')

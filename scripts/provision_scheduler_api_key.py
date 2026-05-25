@@ -26,9 +26,6 @@ import sys
 from google.cloud import firestore
 
 
-DEFAULT_PROJECT = "vertex-ai-middleware-prod"
-
-
 def hash_api_key(plaintext: str) -> str:
     """Match scheduler_mcp.hash_api_key — must stay in sync."""
     return hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
@@ -43,10 +40,13 @@ def main() -> int:
     )
     parser.add_argument(
         "--project-id",
-        default=os.environ.get("GCP_PROJECT_ID", DEFAULT_PROJECT),
-        help=f"Middleware GCP project ID (default: {DEFAULT_PROJECT})",
+        default=os.environ.get("GCP_PROJECT_ID"),
+        help="The Forum's GCP project ID. Defaults to the GCP_PROJECT_ID env var.",
     )
     args = parser.parse_args()
+
+    if not args.project_id:
+        parser.error("--project-id is required (or set the GCP_PROJECT_ID env var)")
 
     db = firestore.Client(project=args.project_id, database="(default)")
     agent_ref = db.collection("agents").document(args.agent_id)

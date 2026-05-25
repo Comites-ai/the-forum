@@ -714,9 +714,10 @@ ${BOLD}[ ] DISCORD${NC}
 
     To onboard a Discord agent (per agent, in the AGENT'S project):
 
-    A. Provision the bot token secret in the agent's project. Use the
-       docs/terraform-templates/agent-project main.tf SECTION 5: DISCORD
-       block, then populate the token:
+    A. Provision the bot token secret in the agent's project. Clone the
+       Agent-Template repo (github.com/Comites-ai/Agent-Template),
+       uncomment SECTION 5: DISCORD in its terraform/main.tf, apply, then
+       populate the token:
          echo -n "YOUR_BOT_TOKEN" | gcloud secrets versions add \\
            \${BOT_ACCOUNT_ID}-discord-token \\
            --data-file=- --project=<agent-project>

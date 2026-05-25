@@ -16,6 +16,8 @@ At **Comites.ai**, we're bringing this concept into the AI age:
 
 Build your own council of AI advisors. Deploy them to Slack, Google Chat, Telegram, or Discord. Let them help you navigate your domain.
 
+**Project home:** [comites.ai](https://comites.ai) — the broader vision, an [architecture overview](https://comites.ai/architecture) (with the cross-project security model explained visually), a [developer walkthrough](https://comites.ai/developers), and the [marketplace](https://comites.ai/marketplace) where finished agents live.
+
 ## Features
 
 - **Multi-Platform Support**: Slack, Google Chat, Telegram, and Discord with unified architecture
@@ -96,8 +98,8 @@ All platform-specific logic is isolated in connectors, making it easy to add new
 
 ```bash
 # Clone repository
-git clone <your-repo-url>
-cd slack_to_agent_integration
+git clone https://github.com/Comites-ai/the-forum.git
+cd the-forum
 
 # Create virtual environment (use python3.11 or python3.12)
 python3 -m venv venv
@@ -346,32 +348,45 @@ python scripts/deploy_agent.py \
 ## Project Structure
 
 ```
-slack_to_agent_integration/
+the-forum/
 ├── app/
-│   ├── main.py                 # FastAPI app + lifespan
-│   ├── config.py               # Pydantic Settings
-│   ├── api/v1/                 # API endpoints
-│   │   ├── slack_events.py     # Slack Events API
-│   │   └── routes.py           # Route aggregation
-│   ├── services/               # Business logic
+│   ├── main.py                       # FastAPI app + lifespan
+│   ├── config.py                     # Pydantic Settings
+│   ├── api/
+│   │   ├── admin/                    # /admin OAuth-gated console
+│   │   └── v1/                       # public + platform webhooks
+│   │       ├── slack_events_v2.py
+│   │       ├── google_chat_events.py
+│   │       ├── telegram_events.py
+│   │       ├── discord_events.py
+│   │       ├── scheduled_jobs.py
+│   │       ├── scheduler_mcp.py      # the Forum's one hosted MCP
+│   │       └── routes.py
+│   ├── services/
+│   │   ├── message_processor_v2.py   # platform → Vertex AI fan-in
 │   │   ├── firestore_service.py
 │   │   ├── vertex_ai_service.py
-│   │   ├── slack_service.py
-│   │   └── message_processor.py
-│   ├── models/                 # Data models
-│   │   ├── agent.py
-│   │   └── session.py
-│   └── schemas/                # Pydantic schemas
-│       └── slack.py
-├── scripts/
-│   ├── deploy_agent.py         # Agent deployment script
-│   └── setup_firestore.py      # Firestore initialization
-├── docs/                       # Detailed documentation
+│   │   ├── identity_service.py
+│   │   ├── scheduled_job_service.py
+│   │   ├── scheduled_job_executor_v2.py
+│   │   └── platforms/                # one connector per platform
+│   │       ├── slack_connector.py
+│   │       ├── google_chat_connector.py
+│   │       ├── telegram_connector.py
+│   │       └── discord_connector.py
+│   ├── models/                       # agent.py, user.py, session.py, …
+│   ├── schemas/                      # pydantic platform_event, etc.
+│   └── core/                         # DI wiring + exceptions
+├── discord-worker/                   # multi-tenant Gateway worker (separate VM)
+├── terraform/                        # Forum infrastructure
+├── scripts/                          # install.sh, deploy_forum.sh, operator tools
+├── tests/                            # pytest suite + per-platform fixtures
+├── docs/                             # see Documentation section below
 ├── Dockerfile
 ├── cloudbuild.yaml
 ├── requirements.txt
-├── .env.example
-└── README.md
+├── requirements-dev.txt
+└── .env.example
 ```
 
 ## Troubleshooting
@@ -385,7 +400,7 @@ slack_to_agent_integration/
 - **Check Slack Events**: Ensure Request URL is verified (green checkmark)
 - **Check logs**:
   - Local: Terminal output
-  - Production: `gcloud run logs read the-forum --region us-central1`
+  - Production: `gcloud run services logs read the-forum --region us-central1`
 
 ### "Agent not found" error
 
@@ -407,7 +422,7 @@ curl -s https://slack.com/api/auth.test \
 **Solution**:
 1. Check logs to see which bot is failing:
    ```bash
-   gcloud run logs read the-forum --region us-central1 --limit 50 | grep "401\|Invalid"
+   gcloud run services logs read the-forum --region us-central1 --limit 50 | grep "401\|Invalid"
    ```
 2. Ensure **all** Slack signing secrets are in your `.env` file (comma-separated):
    ```bash
@@ -459,7 +474,7 @@ pip install aiohttp
 
 ## Adding a New Platform
 
-The Forum's platform abstraction makes it straightforward to add new messaging platforms (WhatsApp, Discord, Microsoft Teams, etc.). Telegram serves as the reference implementation for this process.
+The Forum's platform abstraction makes it straightforward to add new messaging platforms (WhatsApp, Microsoft Teams, Line, etc.). Telegram and Discord are the reference implementations for this process.
 
 ### Architecture Overview
 
@@ -513,10 +528,10 @@ Using Telegram as the reference implementation:
 - [ ] Add convenience method `get_{platform}_config()`
 - [ ] Update platform field description to include new platform
 
-**5. Add Terraform Secret Template** ([docs/terraform-templates/agent-project/main.tf](docs/terraform-templates/agent-project/main.tf))
+**5. Add Terraform Secret Template** (in [Agent-Template](https://github.com/Comites-ai/Agent-Template)'s `terraform/main.tf`)
 - [ ] Add commented section for platform-specific secrets
 - [ ] Include instructions for token storage
-- [ ] Add IAM binding instructions for The Forum access
+- [ ] Add cross-project IAM binding for the Forum's compute SA to read the secret
 
 **6. Update Documentation**
 - [ ] Update README.md features and architecture
@@ -561,7 +576,6 @@ Using Telegram as the reference implementation:
 ### Future Platform Ideas
 
 - **WhatsApp Business API** - Enterprise messaging
-- **Discord** - Community and gaming
 - **Microsoft Teams** - Enterprise collaboration
 - **Line** - Popular in Asia
 - **Facebook Messenger** - Social integration
@@ -569,19 +583,23 @@ Using Telegram as the reference implementation:
 
 ## Documentation
 
-### Setup & Infrastructure
-- **[Terraform README](terraform/README.md)** - The Forum infrastructure deployment
-- **[Terraform Templates](docs/terraform-templates/)** - Templates for agent-specific infrastructure
-  - [Agent Project Template](docs/terraform-templates/agent-project/) - Dedicated GCP project for agents requiring separate projects
-- [GCP Setup Guide](docs/GCP_SETUP.md) - GCP project configuration
+### Start here (project-level)
+- [comites.ai](https://comites.ai) — project home, marketplace, team
+- [comites.ai/architecture](https://comites.ai/architecture) — visual overview of how the Forum, agent projects, and Vertex AI fit together
+- [comites.ai/developers](https://comites.ai/developers) — six-step builder walkthrough that links back into this repo
 
-### Platform Integration
-- [Slack Setup Guide](docs/SLACK_SETUP.md) - Detailed Slack app creation
-- **[For Agent Developers](docs/FOR_AGENT_DEVELOPERS.md)** - Forum-side contract for agent developers (message shape, hosted services, error handling). Start a new agent at [Agent-Template](https://github.com/Comites-ai/Agent-Template).
+### In this repo
+- [AGENTS.md](AGENTS.md) — instructions for AI coding assistants (split into operator vs. contributor sections)
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute (AGPL-3.0 + CLA)
+- [terraform/README.md](terraform/README.md) — Forum infrastructure: what it provisions and how to apply
+- **[docs/FOR_AGENT_DEVELOPERS.md](docs/FOR_AGENT_DEVELOPERS.md)** — Forum-side contract for agent developers: message shape, hosted services, error handling
+- [docs/ADMIN_UI.md](docs/ADMIN_UI.md) — optional `/admin` console (Google OAuth-gated)
+- [docs/DISCORD_WORKER.md](docs/DISCORD_WORKER.md) — Discord multi-tenant Gateway worker
+- [docs/ADDING_A_NEW_PLATFORM.md](docs/ADDING_A_NEW_PLATFORM.md) — guide for adding a new chat platform (spans this repo + Agent-Template)
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — common issues
 
-### Development & Operations
-- [Agent Deployment](docs/AGENT_DEPLOYMENT.md) - How to deploy/update agents
-- [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues
+### Sibling repos
+- [Agent-Template](https://github.com/Comites-ai/Agent-Template) — starting point for new agents; clone it instead of editing this repo
 
 ## Source Code Access
 

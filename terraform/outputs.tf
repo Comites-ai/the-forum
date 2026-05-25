@@ -81,7 +81,9 @@ locals {
         then either reboot the VM or wait for the next maintenance event.
 
       To add a new Discord agent (per agent, in the AGENT'S project):
-        1. Use docs/terraform-templates/agent-project to create:
+        1. Use the Agent-Template repo (github.com/Comites-ai/Agent-Template)
+           — uncomment SECTION 5 of its terraform/main.tf and apply, which
+           creates:
              - discord-bot-token secret container (in agent's project)
              - cross-project secretAccessor grant to:
                %s

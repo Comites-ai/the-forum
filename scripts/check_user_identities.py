@@ -2,14 +2,30 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 #!/usr/bin/env python3
-"""Check user identities and help with linking Google Chat and Slack accounts."""
+"""Check user identities and help with linking Google Chat and Slack accounts.
+
+Reads from the Forum's Firestore. Set the GCP_PROJECT_ID env var or pass
+--project-id to point at your Forum project.
+"""
+import argparse
 import os
+import sys
+
 from google.cloud import firestore
 
-os.environ['GCP_PROJECT_ID'] = 'vertex-ai-middleware-prod'
 
 def main():
-    db = firestore.Client(project='vertex-ai-middleware-prod', database='(default)')
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument(
+        '--project-id',
+        default=os.environ.get('GCP_PROJECT_ID'),
+        help='The Forum GCP project ID. Defaults to the GCP_PROJECT_ID env var.'
+    )
+    args = parser.parse_args()
+    if not args.project_id:
+        parser.error('--project-id is required (or set the GCP_PROJECT_ID env var)')
+
+    db = firestore.Client(project=args.project_id, database='(default)')
 
     # List all users
     users_ref = db.collection('users')
@@ -28,6 +44,7 @@ def main():
             display_name = identity.get('display_name', 'N/A')
             print(f"    - {platform}: {platform_user_id} ({display_name})")
         print()
+
 
 if __name__ == '__main__':
     main()
