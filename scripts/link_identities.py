@@ -35,16 +35,12 @@ import sys
 from datetime import datetime, timezone
 from google.cloud import firestore
 
-# Set default project
-os.environ['GCP_PROJECT_ID'] = os.environ.get('GCP_PROJECT_ID', 'vertex-ai-middleware-prod')
-
-
 def link_identity(
     user_id: str,
     platform: str,
     platform_user_id: str,
     display_name: str,
-    project_id: str = 'vertex-ai-middleware-prod'
+    project_id: str,
 ):
     """
     Link a platform identity to an existing user.
@@ -176,11 +172,13 @@ def main():
     )
     parser.add_argument(
         '--project-id',
-        default='vertex-ai-middleware-prod',
-        help='GCP project ID (default: vertex-ai-middleware-prod)'
+        default=os.environ.get('GCP_PROJECT_ID'),
+        help='The Forum GCP project ID. Defaults to the GCP_PROJECT_ID env var.'
     )
 
     args = parser.parse_args()
+    if not args.project_id:
+        parser.error('--project-id is required (or set the GCP_PROJECT_ID env var)')
 
     link_identity(
         user_id=args.user_id,

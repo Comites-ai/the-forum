@@ -367,7 +367,7 @@ gcloud logging read \
   'resource.type="cloud_run_revision"
    AND resource.labels.service_name="the-forum"
    AND textPayload:"Empty text extracted"' \
-  --project=vertex-ai-middleware-prod \
+  --project=YOUR_FORUM_PROJECT_ID \
   --format='value(timestamp,textPayload)' \
   --limit=50
 ```
@@ -430,14 +430,14 @@ user receives the normal scheduled message.
 ```bash
 # Find jobs with failures
 gcloud firestore documents list scheduled_jobs \
-  --project=vertex-ai-middleware-prod \
+  --project=YOUR_FORUM_PROJECT_ID \
   --format="table(name,data.consecutive_failures,data.last_error)"
 
 # Check logs for specific job failures
 gcloud logging read \
   'resource.type="cloud_run_revision"
    AND textPayload:"Job" AND textPayload:"failed"' \
-  --project=vertex-ai-middleware-prod \
+  --project=YOUR_FORUM_PROJECT_ID \
   --limit=20
 ```
 
@@ -553,7 +553,7 @@ python scripts/link_identities.py \
 - `--platform` — one of `slack`, `google_chat`, `telegram`, `discord`.
 - `--platform-user-id` — the platform-specific user ID being merged in.
 - `--display-name` — the user's display name on that platform.
-- `--project-id` — optional; defaults to `vertex-ai-middleware-prod`.
+- `--project-id` — required, or set the `GCP_PROJECT_ID` env var. Points at your Forum project's Firestore.
 
 ### Unlinking
 

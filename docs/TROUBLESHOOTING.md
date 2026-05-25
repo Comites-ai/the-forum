@@ -38,7 +38,7 @@ These are error messages that users see in Slack/Google Chat/Telegram when somet
 gcloud logging read \
   'resource.type="cloud_run_revision"
    AND textPayload:"function_call=1 function_response=0"' \
-  --project=vertex-ai-middleware-prod \
+  --project=YOUR_FORUM_PROJECT_ID \
   --limit=20
 ```
 
@@ -398,7 +398,7 @@ return JSONResponse(content={"success": True})
 ```bash
 # Check the job's failure status in Firestore
 gcloud firestore documents describe scheduled_jobs/JOB_ID \
-  --project=vertex-ai-middleware-prod
+  --project=YOUR_FORUM_PROJECT_ID
 
 # Look for consecutive_failures and last_error fields
 ```
@@ -426,7 +426,7 @@ gcloud firestore documents describe scheduled_jobs/JOB_ID \
 gcloud logging read \
   'resource.type="cloud_run_revision"
    AND textPayload:"Job" AND textPayload:"failed"' \
-  --project=vertex-ai-middleware-prod \
+  --project=YOUR_FORUM_PROJECT_ID \
   --limit=20
 ```
 
