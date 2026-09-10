@@ -869,7 +869,7 @@ class MessageProcessorV2:
         """
         cut_off = describe_cut_off(
             session.active_run,
-            stale_after_seconds=get_settings().heal_grace_seconds,
+            stale_after_seconds=get_settings().cut_off_after_seconds,
         )
         if not cut_off:
             return

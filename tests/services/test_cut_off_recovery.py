@@ -161,7 +161,7 @@ async def test_the_second_turn_heals_what_the_first_turn_stranded(
 
     # Age the marker past the grace period, then try again.
     doc = _session_doc(fake_firestore)
-    doc["active_run"]["started_at"] = datetime.now(UTC) - timedelta(seconds=600)
+    doc["active_run"]["started_at"] = datetime.now(UTC) - timedelta(seconds=900)
     fake_vertex_ai.set_text_response(ENGINE, "Done now")
 
     await _turn(processor, fake_connector, seeded_agent, "try again")
@@ -170,7 +170,7 @@ async def test_the_second_turn_heals_what_the_first_turn_stranded(
     call = healer.calls[0]
     assert call["agent_id"] == ENGINE
     assert call["session_id"] == doc["vertex_ai_session_id"]
-    assert call["elapsed_seconds"] > 500
+    assert call["elapsed_seconds"] > 800
     assert fake_connector.sent_messages[-1]["text"] == "Done now"
     # The successful turn cleared the marker behind it.
     assert _session_doc(fake_firestore)["active_run"] is None

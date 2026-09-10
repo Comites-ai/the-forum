@@ -37,3 +37,19 @@ def test_gcs_enabled_false_when_unset():
 def test_gcs_enabled_true_when_bucket_configured():
     settings = _make_settings(gcs_bucket_name="my-bucket")
     assert settings.gcs_enabled is True
+
+
+def test_cut_off_threshold_is_longer_than_the_heal_grace():
+    """Two different questions with two different answers (PLAT-42).
+
+    The heal grace asks "has this tool call gone quiet?"; the cut-off
+    threshold asks "is this run ever coming back?". Collapsing them would
+    make a slow-but-live run look abandoned.
+    """
+    from app.config import Settings
+
+    settings = Settings(gcp_project_id="p", slack_signing_secret="s")
+    assert settings.cut_off_after_seconds > settings.heal_grace_seconds
+    # Longer than Cloud Run's default request timeout, so no run outlives it.
+    assert settings.cut_off_after_seconds >= 300
+    assert settings.heal_orphaned_tool_calls is False

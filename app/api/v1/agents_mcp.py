@@ -81,7 +81,7 @@ async def _recover_from_cut_off_run(entry: dict, target: Agent, session_id: str)
     """
     cut_off = describe_cut_off(
         entry.get("active_run"),
-        stale_after_seconds=get_settings().heal_grace_seconds,
+        stale_after_seconds=get_settings().cut_off_after_seconds,
     )
     if not cut_off:
         return

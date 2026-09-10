@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     # before we accept that nothing is coming. Below this we assume the tool
     # is merely slow and leave the session alone.
     heal_grace_seconds: int = 120
+    # How long an in-flight run marker must sit there before we conclude the
+    # run is never coming back. Deliberately longer than the tail grace and
+    # longer than any run can survive — Cloud Run's own request timeout is
+    # 300s — because the cost of guessing wrong here is high: a run still
+    # genuinely in progress would be treated as abandoned, and a tool that
+    # is simply slow could have its result written for it.
+    cut_off_after_seconds: int = 600
 
     # Fallback IANA timezone for localizing message timestamps when a user
     # has no default_timezone set (and the platform doesn't report one).

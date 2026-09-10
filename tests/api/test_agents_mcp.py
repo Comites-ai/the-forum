@@ -381,7 +381,7 @@ async def test_query_agent_heals_a_session_a_cut_off_run_left_behind(
     # Strand the session: an in-flight marker, aged past the grace period.
     key, entry = next(iter(fake_firestore.a2a_sessions.items()))
     entry["active_run"] = {
-        "started_at": datetime.now(UTC) - timedelta(seconds=600),
+        "started_at": datetime.now(UTC) - timedelta(seconds=900),
         "reason": CUT_OFF_TIMEOUT,
     }
 
