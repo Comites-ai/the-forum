@@ -17,6 +17,19 @@ variable "environment" {
   default     = "prod"
 }
 
+variable "heal_orphaned_tool_calls" {
+  description = <<-EOT
+    Let the Forum repair an agent's session when a cut-off run leaves a tool
+    call with no result. Off by default: it makes the Forum write into an
+    agent's own conversation history, and agents built from the current
+    Agent-Template already repair this themselves. Turning it on requires the
+    Forum's service account to hold aiplatform.sessions.list and
+    aiplatform.sessions.appendEvent on each agent's reasoning engine.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "gcs_bucket_lifecycle_days" {
   description = "Number of days before GCS objects are auto-deleted"
   type        = number

@@ -379,6 +379,60 @@ return JSONResponse(content={"success": True})
    grep GCP_ .env
    ```
 
+### An agent goes silent and stays silent, in one conversation only
+
+**Symptoms**: One user's conversation with one agent stops producing any
+reply at all. "Try again" does not help; the same conversation fails every
+time, while the same agent answers other people normally. The agent's own
+logs, if you can see them, show the model provider rejecting the request —
+for Anthropic-backed agents, something like:
+
+```
+400 invalid_request_error: messages.12: `tool_use` ids were found without
+`tool_result` blocks immediately after: toolu_01L3f...
+```
+
+**Cause**: a run was cut off between the agent calling a tool and the tool
+answering. The session kept the call with no result, and every later turn
+replays that broken history. Anthropic rejects it outright; Gemini-backed
+agents are more tolerant, so this shows up first on Anthropic-backed agents.
+
+**Where to look**: the Forum logs a `run_cut_off` event whenever a run it
+started never came back. In Cloud Logging:
+
+```
+jsonPayload.event="run_cut_off"
+```
+
+Each entry names the agent, the session, how long the run had been going,
+and the tool that was in flight. A steady stream of these on one agent is a
+sign its turns are outrunning the timeouts, not a sign of a broken session.
+
+**Fixes**, in order of preference:
+
+1. **Fix it in the agent.** Agents built from the current Agent-Template
+   insert a synthetic result for any unanswered call before each model call,
+   which makes them immune. This is the better fix: the agent knows which
+   provider it is talking to, and the repair ships with the template.
+2. **Let the Forum repair the session** by setting
+   `HEAL_ORPHANED_TOOL_CALLS=true` (terraform:
+   `heal_orphaned_tool_calls = true`). On the next turn after a cut-off run,
+   the Forum appends an honest "interrupted, side effects unconfirmed"
+   result so the history replays cleanly. It only acts when the session is
+   still visibly waiting on that call and nothing has been added for
+   `HEAL_GRACE_SECONDS`, and it never touches a call the agent flagged as
+   long-running. This is a safety net for agents that lag the template —
+   turn it on knowing the Forum will be writing into agents' conversation
+   histories, and that it needs `aiplatform.sessions.list` and
+   `aiplatform.sessions.appendEvent` on each agent's reasoning engine.
+3. **Replace the session.** Deleting the session document in Firestore
+   starts a fresh conversation, losing its history. This always works and is
+   the right move for a one-off.
+
+Note that neither repair re-runs the interrupted tool. Whether its side
+effect actually happened is genuinely unknown, so the agent is told to
+re-check rather than to assume.
+
 ---
 
 ## Scheduled Job Issues

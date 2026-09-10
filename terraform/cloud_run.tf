@@ -59,6 +59,11 @@ resource "google_cloud_run_v2_service" "forum" {
         value = var.environment
       }
 
+      env {
+        name  = "HEAL_ORPHANED_TOOL_CALLS"
+        value = var.heal_orphaned_tool_calls ? "true" : "false"
+      }
+
       # Reference secrets — Slack binding only when var.use_slack is true.
       # Cloudbuild's --set-secrets in cloudbuild.yaml takes over after the
       # initial create (see lifecycle.ignore_changes below), so this is the
