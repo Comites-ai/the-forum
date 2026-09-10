@@ -10,11 +10,20 @@ from typing import Optional, TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from app.config import get_settings
+from app.models.session import Session
 from app.schemas.platform_event import PlatformEvent
 from app.services.firestore_service import FirestoreService
 from app.services.vertex_ai_service import VertexAIService
 from app.services.identity_service import IdentityService
 from app.services.platforms.base import PlatformConnector
+from app.services.run_tracker import (
+    CUT_OFF_STREAM_BROKE,
+    CUT_OFF_VANISHED,
+    active_run_marker,
+    describe_cut_off,
+    log_run_cut_off,
+)
+from app.services.session_healer import SessionHealer, get_session_healer
 from app.core.exceptions import (
     ResourceExhaustedError,
     FileDownloadError,
@@ -201,6 +210,7 @@ class MessageProcessorV2:
         vertex_ai: VertexAIService,
         identity: IdentityService,
         gcs: Optional["GCSService"] = None,
+        healer: Optional[SessionHealer] = None,
     ):
         """
         Initialize message processor.
@@ -210,11 +220,14 @@ class MessageProcessorV2:
             vertex_ai: Vertex AI service instance
             identity: Identity service instance
             gcs: Optional GCS service instance for file uploads
+            healer: Repairs sessions left holding an unanswered tool call.
+                Inert unless an operator sets HEAL_ORPHANED_TOOL_CALLS.
         """
         self.firestore = firestore
         self.vertex_ai = vertex_ai
         self.identity = identity
         self.gcs = gcs
+        self.healer = healer or get_session_healer()
 
     async def process_platform_event(
         self,
@@ -336,13 +349,23 @@ class MessageProcessorV2:
                 message_text = f"{NOTE_NON_IMAGE_FILES_DROPPED}\n\n{message_text}"
                 logger.info("Prepended dropped-files note to agent prompt")
 
-            session_id = await self._get_or_create_session(
+            session = await self._get_or_create_session(
                 user_id=user.id,
                 agent_id=agent_id,
                 vertex_ai_agent_id=agent.vertex_ai_agent_id,
                 platform=event.platform,
                 user_name=user.primary_name
             )
+            session_id = session.vertex_ai_session_id
+
+            # A run marker still sitting here means the previous turn never
+            # came back, which is where an unanswered tool call comes from.
+            await self._recover_from_cut_off_run(
+                session=session,
+                vertex_ai_agent_id=agent.vertex_ai_agent_id,
+                platform=event.platform,
+            )
+            await self.firestore.mark_run_started(session.id, active_run_marker())
 
             try:
                 response = await self.vertex_ai.send_message(
@@ -354,11 +377,19 @@ class MessageProcessorV2:
                 logger.warning(
                     f"Agent stream broke mid-flight for user {user.id}: {e}"
                 )
+                # Leave the marker in place, but say what happened: the
+                # stream died mid-tool often enough that the next turn
+                # should come looking.
+                await self.firestore.mark_run_started(
+                    session.id, active_run_marker(CUT_OFF_STREAM_BROKE)
+                )
                 await connector.send_message(
                     recipient_id=conversation_id,
                     text=ERR_STREAM_BROKEN,
                 )
                 return
+
+            await self._close_out_run(session.id, response)
 
             response_text = response.text.strip()
             if not response_text:
@@ -775,7 +806,7 @@ class MessageProcessorV2:
         vertex_ai_agent_id: str,
         platform: str,
         user_name: str = None
-    ) -> str:
+    ) -> Session:
         """
         Get existing session or create new one for unified user.
 
@@ -787,7 +818,8 @@ class MessageProcessorV2:
             user_name: User's actual name to pass to the Reasoning Engine
 
         Returns:
-            Vertex AI session ID
+            The session mapping. Callers want the whole record, not just the
+            Vertex session id: the run marker rides on it.
 
         Raises:
             Exception: If session operations fail
@@ -803,14 +835,14 @@ class MessageProcessorV2:
                 f"Using existing session: {session.id} "
                 f"(now includes platform: {platform})"
             )
-            return session.vertex_ai_session_id
+            return session
 
         vertex_session_id = await self.vertex_ai.create_session(
             vertex_ai_agent_id,
             user_name=user_name
         )
 
-        await self.firestore.create_session_for_user(
+        session = await self.firestore.create_session_for_user(
             user_id=user_id,
             agent_id=agent_id,
             vertex_ai_session_id=vertex_session_id,
@@ -818,4 +850,62 @@ class MessageProcessorV2:
         )
 
         logger.info(f"Created new session: {vertex_session_id} for user {user_id}")
-        return vertex_session_id
+        return session
+
+    async def _recover_from_cut_off_run(
+        self,
+        session: Session,
+        vertex_ai_agent_id: str,
+        platform: Optional[str] = None,
+    ) -> None:
+        """
+        Deal with a run that was started on this session and never returned.
+
+        The log is the point of this even when healing is switched off: it is
+        the only record of how often runs are cut off and on which agent. If
+        healing *is* on, this is also the moment to repair a session left
+        holding an unanswered tool call — a turn later than the damage, but
+        before the turn that would have tripped over it.
+        """
+        cut_off = describe_cut_off(
+            session.active_run,
+            stale_after_seconds=get_settings().heal_grace_seconds,
+        )
+        if not cut_off:
+            return
+
+        log_run_cut_off(
+            cut_off,
+            agent_id=vertex_ai_agent_id,
+            session_id=session.vertex_ai_session_id,
+            platform=platform,
+        )
+        outcome = await self.healer.heal(
+            agent_id=vertex_ai_agent_id,
+            session_id=session.vertex_ai_session_id,
+            reason=cut_off.reason,
+            elapsed_seconds=cut_off.elapsed_seconds,
+        )
+        logger.info(
+            f"Cut-off recovery for session {session.id}: {outcome.reason}"
+            + (f" ({outcome.detail})" if outcome.detail else "")
+        )
+
+    async def _close_out_run(self, session_doc_id: str, response) -> None:
+        """
+        Clear the run marker — but only if the turn actually produced words.
+
+        A turn that ends with a tool call and no text is the shape that
+        leaves an orphan behind, so the marker stays and the next turn comes
+        looking. The healer's own tail check decides whether there is really
+        anything to repair, so a marker left on a merely-unproductive turn
+        costs one read and nothing else.
+        """
+        if response.text and response.text.strip():
+            await self.firestore.clear_active_run(session_doc_id)
+            return
+
+        marker = active_run_marker(CUT_OFF_VANISHED)
+        if response.function_names:
+            marker["last_tool"] = response.function_names[-1]
+        await self.firestore.mark_run_started(session_doc_id, marker)

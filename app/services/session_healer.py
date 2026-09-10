@@ -36,6 +36,7 @@ honest result it can write.
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any, Optional, Sequence
 
 from google.cloud.aiplatform_v1beta1.services.session_service import (
@@ -426,3 +427,15 @@ class SessionHealer:
         if stamp.tzinfo is None:
             stamp = stamp.replace(tzinfo=UTC)
         return (datetime.now(UTC) - stamp).total_seconds()
+
+
+@lru_cache()
+def get_session_healer() -> SessionHealer:
+    """
+    The process-wide healer.
+
+    Shared so the gRPC channel to the Sessions API is built once rather than
+    per request — the request-scoped services that use it are themselves
+    constructed per request.
+    """
+    return SessionHealer()

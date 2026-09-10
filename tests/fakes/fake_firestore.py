@@ -99,6 +99,27 @@ class FakeFirestoreService:
     async def delete_a2a_session(self, session_key: str) -> None:
         self.a2a_sessions.pop(session_key, None)
 
+    # ---- In-flight run markers (see app/services/run_tracker.py) ----
+
+    def _run_marker_store(self, collection: Optional[str]) -> dict[str, dict]:
+        return self.a2a_sessions if collection == "a2a_sessions" else self.sessions
+
+    async def mark_run_started(
+        self, session_id: str, marker: dict, *, collection: Optional[str] = None
+    ) -> None:
+        store = self._run_marker_store(collection)
+        # Firestore's update() no-ops loudly on a missing doc; the real
+        # service swallows that, so the fake simply skips it too.
+        if session_id in store:
+            store[session_id]["active_run"] = marker
+
+    async def clear_active_run(
+        self, session_id: str, *, collection: Optional[str] = None
+    ) -> None:
+        store = self._run_marker_store(collection)
+        if session_id in store:
+            store[session_id]["active_run"] = None
+
     # ---- Session methods (legacy slack-only and new user-based) ----
 
     async def get_session(self, slack_user_id: str, agent_id: str) -> Optional[Session]:
