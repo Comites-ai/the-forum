@@ -32,5 +32,13 @@ class Session(BaseModel):
     )
     created_at: datetime = Field(..., description="Session creation timestamp")
     last_activity_at: datetime = Field(..., description="Last message timestamp")
+    active_run: Optional[dict] = Field(
+        default=None,
+        description=(
+            "Set while a run is in flight and cleared when it returns. Still "
+            "here on the next turn means the previous run never came back — "
+            "see app/services/run_tracker.py"
+        ),
+    )
 
     model_config = {"frozen": False}  # Mutable to update platforms_used and last_activity_at

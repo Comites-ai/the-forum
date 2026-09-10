@@ -181,6 +181,34 @@ class FirestoreService:
             logger.error(f"Error updating session activity for {session_id}: {e}")
             raise
 
+    async def mark_run_started(
+        self, session_id: str, marker: dict, *, collection: Optional[str] = None
+    ) -> None:
+        """
+        Record that a run is in flight on this session.
+
+        Best-effort on purpose: losing the marker costs us the chance to
+        notice a cut-off later, which is not worth failing a user's message
+        over. See app/services/run_tracker.py.
+        """
+        try:
+            await self.client.collection(
+                collection or self.sessions_collection
+            ).document(session_id).update({"active_run": marker})
+        except Exception as e:
+            logger.warning(f"Could not mark run started on session {session_id}: {e}")
+
+    async def clear_active_run(
+        self, session_id: str, *, collection: Optional[str] = None
+    ) -> None:
+        """Record that the run came back. Best-effort, same reasoning."""
+        try:
+            await self.client.collection(
+                collection or self.sessions_collection
+            ).document(session_id).update({"active_run": None})
+        except Exception as e:
+            logger.warning(f"Could not clear run marker on session {session_id}: {e}")
+
     async def get_agent_by_id(self, agent_id: str) -> Optional[Agent]:
         """
         Retrieve agent configuration by document ID.
