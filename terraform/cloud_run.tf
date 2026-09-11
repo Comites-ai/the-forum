@@ -59,6 +59,11 @@ resource "google_cloud_run_v2_service" "forum" {
         value = var.environment
       }
 
+      # Bootstrap value only, like the secrets below: cloudbuild.yaml's
+      # --set-env-vars replaces the whole env set on every revision, and
+      # scripts/deploy_forum.sh is what carries this flag through from
+      # terraform.tfvars. Changing it here without redeploying does nothing
+      # lasting.
       env {
         name  = "HEAL_ORPHANED_TOOL_CALLS"
         value = var.heal_orphaned_tool_calls ? "true" : "false"
