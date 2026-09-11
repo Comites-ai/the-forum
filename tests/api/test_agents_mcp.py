@@ -8,13 +8,17 @@ ASGI layer normally sets it after authenticating the X-API-Key). Cover:
 listing excludes the caller, inquiry lookup, and query_agent's attribution
 prefix / per-(caller,target,user) session reuse / validation errors.
 """
+import asyncio
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from app.api.v1 import agents_mcp
 from app.models.agent import Agent, AgentInquiry
 from app.models.user import PlatformIdentity, User
+from app.services.run_tracker import CUT_OFF_TIMEOUT
+from app.services.session_healer import HealOutcome
 
 from tests.fakes.fake_vertex_ai import FakeVertexAIService
 
@@ -316,3 +320,83 @@ async def test_query_agent_empty_reply_raises(fake_firestore, fake_vertex, reque
             "message": "hello",
             "on_behalf_of": "Jonathan Cavell",
         })
+
+
+# ---------------------------------------------------------------------------
+# Cut-off runs (PLAT-42)
+# ---------------------------------------------------------------------------
+
+
+async def test_query_agent_marks_and_clears_the_run(
+    fake_firestore, fake_vertex, request_ctx
+):
+    await _seed_user(fake_firestore)
+    fake_vertex.set_text_response(TARGET_VERTEX_ID, "ok")
+
+    await agents_mcp._handle_query_agent({
+        "agent_name": "Mickey Marathon",
+        "message": "hello",
+        "on_behalf_of": "Jonathan Cavell",
+    })
+
+    entry = next(iter(fake_firestore.a2a_sessions.values()))
+    assert entry["active_run"] is None
+
+
+async def test_query_agent_timeout_leaves_a_marker_naming_the_timeout(
+    monkeypatch, fake_firestore, fake_vertex, request_ctx
+):
+    """The Forum stopped listening; the engine may still be mid-tool."""
+    await _seed_user(fake_firestore)
+
+    async def _never_answers(*args, **kwargs):
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(fake_vertex, "send_message", _never_answers)
+
+    with pytest.raises(ValueError, match="did not reply within"):
+        await agents_mcp._handle_query_agent({
+            "agent_name": "Mickey Marathon",
+            "message": "hello",
+            "on_behalf_of": "Jonathan Cavell",
+        })
+
+    entry = next(iter(fake_firestore.a2a_sessions.values()))
+    assert entry["active_run"]["reason"] == CUT_OFF_TIMEOUT
+
+
+async def test_query_agent_heals_a_session_a_cut_off_run_left_behind(
+    monkeypatch, fake_firestore, fake_vertex, request_ctx
+):
+    await _seed_user(fake_firestore)
+    fake_vertex.set_text_response(TARGET_VERTEX_ID, "ok")
+
+    args = {
+        "agent_name": "Mickey Marathon",
+        "message": "hello",
+        "on_behalf_of": "Jonathan Cavell",
+    }
+    await agents_mcp._handle_query_agent(args)
+
+    # Strand the session: an in-flight marker, aged past the grace period.
+    key, entry = next(iter(fake_firestore.a2a_sessions.items()))
+    entry["active_run"] = {
+        "started_at": datetime.now(UTC) - timedelta(seconds=900),
+        "reason": CUT_OFF_TIMEOUT,
+    }
+
+    calls = []
+
+    class _Healer:
+        async def heal(self, **kwargs):
+            calls.append(kwargs)
+            return HealOutcome(healed=True, reason="healed")
+
+    monkeypatch.setattr(agents_mcp, "get_session_healer", lambda: _Healer())
+
+    await agents_mcp._handle_query_agent(args)
+
+    assert len(calls) == 1
+    assert calls[0]["agent_id"] == TARGET_VERTEX_ID
+    assert calls[0]["session_id"] == entry["vertex_ai_session_id"]
+    assert calls[0]["reason"] == CUT_OFF_TIMEOUT

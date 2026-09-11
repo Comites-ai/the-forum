@@ -45,8 +45,16 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import TextContent, Tool
 
 from app.api.v1.scheduler_mcp import hash_api_key
+from app.config import get_settings
 from app.models.agent import Agent
 from app.services.firestore_service import FirestoreService
+from app.services.run_tracker import (
+    CUT_OFF_TIMEOUT,
+    active_run_marker,
+    describe_cut_off,
+    log_run_cut_off,
+)
+from app.services.session_healer import get_session_healer
 from app.services.vertex_ai_service import VertexAIService
 
 logger = logging.getLogger(__name__)
@@ -55,6 +63,45 @@ logger = logging.getLogger(__name__)
 # turns with several tool calls can take a while; callers should treat a
 # timeout as "try again later", not as a missing feature on the target.
 QUERY_TIMEOUT_SECONDS = 120
+
+# Collection holding the A2A session docs the run marker rides on. Matches
+# FirestoreService.a2a_sessions_collection.
+A2A_SESSIONS = "a2a_sessions"
+
+
+async def _recover_from_cut_off_run(entry: dict, target: Agent, session_id: str) -> None:
+    """
+    Deal with a previous query on this session that never came back.
+
+    The 120s `wait_for` above is a real cut-off: the Forum stops listening
+    while the engine may still be mid-tool, which is exactly how a
+    `function_call` ends up with no result. Logging it is unconditional and
+    is the signal that says whether the timeout wants tuning; repairing the
+    session happens only if an operator has opted in.
+    """
+    cut_off = describe_cut_off(
+        entry.get("active_run"),
+        stale_after_seconds=get_settings().cut_off_after_seconds,
+    )
+    if not cut_off:
+        return
+
+    log_run_cut_off(
+        cut_off,
+        agent_id=target.vertex_ai_agent_id,
+        session_id=session_id,
+        platform="a2a",
+    )
+    outcome = await get_session_healer().heal(
+        agent_id=target.vertex_ai_agent_id,
+        session_id=session_id,
+        reason=cut_off.reason,
+        elapsed_seconds=cut_off.elapsed_seconds,
+    )
+    logger.info(
+        f"Cut-off recovery for A2A session with {target.display_name}: "
+        f"{outcome.reason}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -259,8 +306,14 @@ async def _handle_query_agent(args: dict[str, Any]) -> str:
         return new_id
 
     async def _query(session_id: str):
+        # Marked before and cleared after, so the next query on this session
+        # can tell that a run was started and never came back — the moment a
+        # tool call gets stranded without a result (PLAT-42).
+        await firestore.mark_run_started(
+            session_key, active_run_marker(), collection=A2A_SESSIONS
+        )
         try:
-            return await asyncio.wait_for(
+            response = await asyncio.wait_for(
                 vertex_ai.send_message(
                     agent_id=target.vertex_ai_agent_id,
                     session_id=session_id,
@@ -269,10 +322,21 @@ async def _handle_query_agent(args: dict[str, Any]) -> str:
                 timeout=QUERY_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
+            # The engine may well still be running; we have simply stopped
+            # listening. Leave the marker, say why, and let the next query
+            # decide (after the grace period) whether anything needs repair.
+            await firestore.mark_run_started(
+                session_key,
+                active_run_marker(CUT_OFF_TIMEOUT),
+                collection=A2A_SESSIONS,
+            )
             raise ValueError(
                 f"{target.display_name} did not reply within {QUERY_TIMEOUT_SECONDS}s. "
                 f"Try again later."
             )
+        if response.text and response.text.strip():
+            await firestore.clear_active_run(session_key, collection=A2A_SESSIONS)
+        return response
 
     prefixed = (
         f"[From Agent: {caller.display_name} | On Behalf Of: {user.primary_name}] {message}"
@@ -293,6 +357,8 @@ async def _handle_query_agent(args: dict[str, Any]) -> str:
     used_cached_session = session_id is not None
     if session_id is None:
         session_id = await _fresh_session()
+    elif entry:
+        await _recover_from_cut_off_run(entry, target, session_id)
 
     response = await _query(session_id)
     reply = (response.text or "").strip()

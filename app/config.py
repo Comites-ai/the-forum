@@ -28,6 +28,27 @@ class Settings(BaseSettings):
     # A new Vertex AI session will be created after expiry
     session_timeout_minutes: int = 180  # 3 hours
 
+    # Session healing (app/services/session_healer.py).
+    #
+    # A run cut off between a function_call and its result leaves the session
+    # unusable for Anthropic-backed agents. Agents built from the current
+    # Agent-Template repair this themselves; healing here is the safety net
+    # for the ones that don't. It is off by default because it makes the
+    # Forum write into an agent's own memory, which no operator should get
+    # without asking for it.
+    heal_orphaned_tool_calls: bool = False
+    # How long an unanswered tool call must sit at the tail of a session
+    # before we accept that nothing is coming. Below this we assume the tool
+    # is merely slow and leave the session alone.
+    heal_grace_seconds: int = 120
+    # How long an in-flight run marker must sit there before we conclude the
+    # run is never coming back. Deliberately longer than the tail grace and
+    # longer than any run can survive — Cloud Run's own request timeout is
+    # 300s — because the cost of guessing wrong here is high: a run still
+    # genuinely in progress would be treated as abandoned, and a tool that
+    # is simply slow could have its result written for it.
+    cut_off_after_seconds: int = 600
+
     # Fallback IANA timezone for localizing message timestamps when a user
     # has no default_timezone set (and the platform doesn't report one).
     # America/New_York (not the fixed-offset "EST") so DST is handled.

@@ -165,3 +165,37 @@ async def test_test_execute_job_honors_sentinel(
     assert result["success"] is True
     assert fake_connector.sent_messages == []
     assert "silently" in result["message"]
+
+
+# ---------------------------------------------------------------------------
+# Cut-off runs (PLAT-42)
+# ---------------------------------------------------------------------------
+
+
+async def test_a_scheduled_run_that_answers_clears_its_marker(
+    executor, fake_firestore, fake_vertex_ai, fake_connector, job_id
+):
+    """Nobody watches a scheduled run, so its bookkeeping has to be its own."""
+    fake_vertex_ai.set_text_response(VERTEX_AGENT_ID, "All quiet.")
+    await executor.execute_job(job_id, execution_id="exec-1")
+
+    session = next(iter(fake_firestore.sessions.values()))
+    assert session["active_run"] is None
+
+
+async def test_a_scheduled_run_that_ends_on_a_silent_tool_leaves_its_marker(
+    executor, fake_firestore, fake_vertex_ai, fake_connector, job_id
+):
+    fake_vertex_ai.set_response(
+        VERTEX_AGENT_ID,
+        VertexAIResponse(
+            text="",
+            chunk_count=2,
+            breakdown={"function_call": 1, "function_response": 0},
+            function_names=["write_sheet"],
+        ),
+    )
+    await executor.execute_job(job_id, execution_id="exec-1")
+
+    session = next(iter(fake_firestore.sessions.values()))
+    assert session["active_run"]["last_tool"] == "write_sheet"

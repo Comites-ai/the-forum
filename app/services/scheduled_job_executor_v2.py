@@ -8,7 +8,15 @@ from typing import Optional
 
 from app.config import get_settings
 from app.core.exceptions import ResourceExhaustedError
+from app.models.session import Session
 from app.services.firestore_service import FirestoreService
+from app.services.run_tracker import (
+    CUT_OFF_VANISHED,
+    active_run_marker,
+    describe_cut_off,
+    log_run_cut_off,
+)
+from app.services.session_healer import SessionHealer, get_session_healer
 from app.services.vertex_ai_service import VertexAIService
 from app.services.identity_service import IdentityService
 from app.services.platforms.slack_connector import SlackConnector
@@ -35,6 +43,7 @@ class ScheduledJobExecutorV2:
         firestore: FirestoreService,
         vertex_ai: VertexAIService,
         identity: IdentityService,
+        healer: Optional[SessionHealer] = None,
     ):
         """
         Initialize the job executor.
@@ -43,10 +52,13 @@ class ScheduledJobExecutorV2:
             firestore: Firestore service for data access
             vertex_ai: Vertex AI service for agent calls
             identity: Identity service for user resolution
+            healer: Repairs sessions left holding an unanswered tool call.
+                Inert unless an operator sets HEAL_ORPHANED_TOOL_CALLS.
         """
         self.firestore = firestore
         self.vertex_ai = vertex_ai
         self.identity = identity
+        self.healer = healer or get_session_healer()
         self.settings = get_settings()
 
     async def execute_job(self, job_id: str, execution_id: str) -> bool:
@@ -134,13 +146,25 @@ class ScheduledJobExecutorV2:
             user_display_name = user_info.get("display_name", recipient_id)
 
             # Step 8: Get existing session or create new one
-            session_id = await self._get_or_create_session(
+            session = await self._get_or_create_session(
                 user_id=job.user_id,
                 agent_id=job.agent_id,
                 vertex_ai_agent_id=agent.vertex_ai_agent_id,
                 platform=job.output_platform
             )
+            session_id = session.vertex_ai_session_id
             logger.info(f"Using Vertex AI session: {session_id}")
+
+            # A scheduled run is the likeliest one to be cut off unnoticed —
+            # nobody is watching it — and it shares the session the user
+            # talks in, so the damage surfaces in their next message. Clean
+            # up after the last run before starting this one (PLAT-42).
+            await self._recover_from_cut_off_run(
+                session=session,
+                vertex_ai_agent_id=agent.vertex_ai_agent_id,
+                platform=job.output_platform,
+            )
+            await self.firestore.mark_run_started(session.id, active_run_marker())
 
             # Step 9: Send prompt to Vertex AI agent
             prefixed_prompt = (
@@ -152,6 +176,8 @@ class ScheduledJobExecutorV2:
                 session_id=session_id,
                 message=prefixed_prompt,
             )
+
+            await self._close_out_run(session.id, response)
 
             # Step 10: A [SILENT]-prefixed reply means the job ran fine but has
             # nothing to tell the user — record success, deliver nothing.
@@ -373,7 +399,7 @@ class ScheduledJobExecutorV2:
         agent_id: str,
         vertex_ai_agent_id: str,
         platform: str
-    ) -> str:
+    ) -> Session:
         """
         Get existing session or create new one.
 
@@ -387,7 +413,8 @@ class ScheduledJobExecutorV2:
             platform: Platform this message will be sent to
 
         Returns:
-            Vertex AI session ID
+            The session mapping — the run marker rides on it, so callers
+            need the record and not just the Vertex session id.
         """
         # Try to get existing session
         session = await self.firestore.get_session_by_user(
@@ -399,13 +426,13 @@ class ScheduledJobExecutorV2:
             # Update last activity timestamp and track platform usage
             await self.firestore.update_session_platforms(session.id, platform)
             logger.info(f"Using existing session: {session.id}")
-            return session.vertex_ai_session_id
+            return session
 
         # No existing session, create new one in Vertex AI
         vertex_session_id = await self.vertex_ai.create_session(vertex_ai_agent_id)
 
         # Store in Firestore
-        await self.firestore.create_session_for_user(
+        session = await self.firestore.create_session_for_user(
             user_id=user_id,
             agent_id=agent_id,
             vertex_ai_session_id=vertex_session_id,
@@ -413,7 +440,53 @@ class ScheduledJobExecutorV2:
         )
 
         logger.info(f"Created new session: {vertex_session_id}")
-        return vertex_session_id
+        return session
+
+    async def _recover_from_cut_off_run(
+        self,
+        session: Session,
+        vertex_ai_agent_id: str,
+        platform: Optional[str] = None,
+    ) -> None:
+        """Log — and if enabled, repair — a run that never came back."""
+        cut_off = describe_cut_off(
+            session.active_run,
+            stale_after_seconds=self.settings.cut_off_after_seconds,
+        )
+        if not cut_off:
+            return
+
+        log_run_cut_off(
+            cut_off,
+            agent_id=vertex_ai_agent_id,
+            session_id=session.vertex_ai_session_id,
+            platform=platform,
+        )
+        outcome = await self.healer.heal(
+            agent_id=vertex_ai_agent_id,
+            session_id=session.vertex_ai_session_id,
+            reason=cut_off.reason,
+            elapsed_seconds=cut_off.elapsed_seconds,
+        )
+        logger.info(
+            f"Cut-off recovery for session {session.id}: {outcome.reason}"
+        )
+
+    async def _close_out_run(self, session_doc_id: str, response) -> None:
+        """
+        Clear the marker only if the run produced words.
+
+        A [SILENT] reply counts: the agent finished its turn and chose to
+        say nothing. A genuinely empty reply after a tool call does not.
+        """
+        if response.text and response.text.strip():
+            await self.firestore.clear_active_run(session_doc_id)
+            return
+
+        marker = active_run_marker(CUT_OFF_VANISHED)
+        if response.function_names:
+            marker["last_tool"] = response.function_names[-1]
+        await self.firestore.mark_run_started(session_doc_id, marker)
 
     async def test_execute_job(self, job_id: str) -> dict:
         """

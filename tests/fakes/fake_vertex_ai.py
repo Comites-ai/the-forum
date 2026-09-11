@@ -17,12 +17,18 @@ class FakeVertexAIService:
         self.default_response_text = default_response_text
         self.canned_responses: dict[str, VertexAIResponse] = {}
         self.response_queues: dict[str, list[VertexAIResponse]] = {}
+        self.errors: dict[str, Exception] = {}
         self.sessions_created: list[dict] = []
         self.messages_sent: list[dict] = []
 
     def set_response(self, agent_id: str, response: VertexAIResponse) -> None:
         """Preload a response for the next send_message call against agent_id."""
         self.canned_responses[agent_id] = response
+
+    def set_error(self, agent_id: str, error: Exception) -> None:
+        """Make send_message raise instead of answering — a broken stream,
+        a rate limit, whatever the caller needs to handle."""
+        self.errors[agent_id] = error
 
     def set_text_response(self, agent_id: str, text: str) -> None:
         self.canned_responses[agent_id] = VertexAIResponse(text=text, chunk_count=1)
@@ -50,6 +56,8 @@ class FakeVertexAIService:
         self.messages_sent.append(
             {"agent_id": agent_id, "session_id": session_id, "message": message}
         )
+        if agent_id in self.errors:
+            raise self.errors[agent_id]
         queue = self.response_queues.get(agent_id)
         if queue:
             return queue.pop(0)
