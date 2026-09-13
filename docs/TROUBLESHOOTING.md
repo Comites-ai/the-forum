@@ -415,8 +415,11 @@ sign its turns are outrunning the timeouts, not a sign of a broken session.
    which makes them immune. This is the better fix: the agent knows which
    provider it is talking to, and the repair ships with the template.
 2. **Let the Forum repair the session** by setting
-   `HEAL_ORPHANED_TOOL_CALLS=true` (terraform:
-   `heal_orphaned_tool_calls = true`). On the next turn after a cut-off run,
+   `heal_orphaned_tool_calls = true` in `terraform/terraform.tfvars` and
+   redeploying with `scripts/deploy_forum.sh`. The redeploy is what applies
+   it — Cloud Build sets the service's env vars on every revision, so a
+   `terraform apply` on its own would be overwritten by the next deploy.
+   On the next turn after a cut-off run,
    the Forum appends an honest "interrupted, side effects unconfirmed"
    result so the history replays cleanly. It only acts when the session is
    still visibly waiting on that call and nothing has been added for

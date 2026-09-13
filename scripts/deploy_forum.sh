@@ -120,6 +120,24 @@ else
     echo "  Admin UI: not in use (oauth-client-id absent)"
 fi
 
+# Session healing (PLAT-42). cloudbuild.yaml's --set-env-vars replaces the
+# whole env set on each revision, so anything not named here is dropped —
+# which means terraform's env block for this flag is a bootstrap value only
+# and would be silently wiped by the next deploy. Read it from tfvars, the
+# one place an operator sets it, and carry it through. Absent means false,
+# matching the Settings default.
+HEAL_FLAG="false"
+TFVARS="$REPO_ROOT/terraform/terraform.tfvars"
+if [[ -f "$TFVARS" ]] && grep -Eq '^[[:space:]]*heal_orphaned_tool_calls[[:space:]]*=[[:space:]]*true' "$TFVARS"; then
+    HEAL_FLAG="true"
+fi
+EXTRA_ENV_VARS="${EXTRA_ENV_VARS},HEAL_ORPHANED_TOOL_CALLS=${HEAL_FLAG}"
+if [[ "$HEAL_FLAG" == "true" ]]; then
+    echo "  Healing:  ON — the Forum will repair sessions left holding an unanswered tool call"
+else
+    echo "  Healing:  off (cut-off logging still records every run that never came back)"
+fi
+
 EXTRA_FLAGS=""
 if [[ -n "$SECRETS_LIST" ]]; then
     EXTRA_FLAGS="--set-secrets=$SECRETS_LIST"
