@@ -16,7 +16,7 @@ from starlette.routing import Mount
 
 from app.config import get_settings
 from app.api.v1 import routes as v1_routes
-from app.api.v1 import agents_mcp, scheduler_mcp
+from app.api.v1 import agents_mcp, history_mcp, scheduler_mcp
 from app.core.dependencies import AdminAuthRequired
 from app.services.firestore_service import FirestoreService
 from app.services.vertex_ai_service import VertexAIService
@@ -107,7 +107,8 @@ async def lifespan(app: FastAPI):
     # the task groups live for the duration of the FastAPI lifespan.
     async with scheduler_mcp.session_manager.run():
         async with agents_mcp.session_manager.run():
-            yield
+            async with history_mcp.session_manager.run():
+                yield
 
     # Shutdown
     logger.info("Shutting down application...")
@@ -142,6 +143,9 @@ def create_app() -> FastAPI:
     )
     app.routes.append(
         Mount(f"{settings.api_v1_prefix}/mcp/agents", app=agents_mcp.asgi_app)
+    )
+    app.routes.append(
+        Mount(f"{settings.api_v1_prefix}/mcp/history", app=history_mcp.asgi_app)
     )
 
     if settings.admin_ui_enabled:

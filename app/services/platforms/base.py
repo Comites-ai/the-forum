@@ -36,6 +36,16 @@ class PlatformConnector(ABC):
         """
         pass
 
+    def sent_message_ids(self, send_result: dict) -> list[str]:
+        """
+        The platform message ids a send_message() result stands for.
+
+        Used to record outbound messages in the conversation log. The
+        default knows nothing about the platform's response shape and
+        returns no ids; connectors override it.
+        """
+        return []
+
     @abstractmethod
     async def download_file(self, download_ref: str) -> bytes:
         """

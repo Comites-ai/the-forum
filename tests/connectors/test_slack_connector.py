@@ -159,3 +159,18 @@ def test_parse_event_raises_on_missing_user():
     payload = {"event": {"channel": "C_001"}}
     with pytest.raises(ValueError):
         connector.parse_event(payload)
+
+
+# ---- message ids for the conversation log (PLAT-43) ----
+
+
+def test_parse_event_carries_the_ts_as_message_id():
+    connector = _make_connector()
+    event = connector.parse_event(load_fixture("slack/direct_message.json"))
+    assert event.message_id == event.raw_event["event"]["ts"]
+
+
+def test_sent_message_ids_reads_ts():
+    connector = _make_connector()
+    assert connector.sent_message_ids({"ok": True, "ts": "1757700000.000200"}) == ["1757700000.000200"]
+    assert connector.sent_message_ids({"ok": False}) == []

@@ -92,3 +92,35 @@ def test_parse_event_skips_attachment_without_url():
     assert event.files == []
     # No message_id in this payload → no derivable timestamp
     assert event.sent_at is None
+
+
+# ---- message ids for the conversation log (PLAT-43) ----
+
+
+def test_parse_event_carries_the_message_id():
+    connector = _make_connector()
+    event = connector.parse_event(load_fixture("discord/dm_text.json"))
+    assert event.message_id == "777888999000111222"
+
+
+async def test_chunked_send_reports_every_chunk_id(monkeypatch):
+    connector = _make_connector()
+    sent: list[str] = []
+
+    async def fake_send_single(recipient_id, text):
+        sent.append(text)
+        return {"id": f"m{len(sent)}", "content": text}
+
+    monkeypatch.setattr(connector, "_send_single", fake_send_single)
+
+    result = await connector.send_message("chan", "para one\n\n" + ("x" * 1900) + "\n\npara three")
+
+    assert len(sent) > 1
+    assert result["id"] == f"m{len(sent)}"
+    assert connector.sent_message_ids(result) == [f"m{i + 1}" for i in range(len(sent))]
+
+
+def test_sent_message_ids_falls_back_to_single_id():
+    connector = _make_connector()
+    assert connector.sent_message_ids({"id": "123"}) == ["123"]
+    assert connector.sent_message_ids({}) == []

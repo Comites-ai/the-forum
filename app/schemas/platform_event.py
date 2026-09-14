@@ -52,6 +52,14 @@ class PlatformEvent(BaseModel):
             "receive time."
         )
     )
+    message_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "The platform's own id for this message (Slack ts, Discord "
+            "snowflake, Telegram message_id, Google Chat message name). "
+            "Recorded in the conversation log; None when the payload has none."
+        )
+    )
     media_group_id: Optional[str] = Field(
         default=None,
         description=(

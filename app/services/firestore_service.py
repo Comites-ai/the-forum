@@ -11,6 +11,7 @@ from google.cloud.firestore import AsyncClient, FieldFilter, ArrayUnion
 from app.config import get_settings
 from app.core.exceptions import DuplicateScheduledJobError, ScheduledJobReadError
 from app.models.agent import Agent
+from app.models.message import LoggedMessage, conversation_key
 from app.models.session import Session
 from app.models.scheduled_job import ScheduledJob, job_identity_key
 from app.models.user import User, PlatformIdentity
@@ -34,6 +35,9 @@ class FirestoreService:
         # Kept separate from `sessions` so A2A traffic never pollutes the
         # user-session model or the admin UI's session views.
         self.a2a_sessions_collection = "a2a_sessions"
+        # Conversation log (PLAT-43): one subcollection per agent-user pair.
+        self.conversations_collection = "conversations"
+        self.messages_collection = "messages"
         logger.info(f"Firestore client initialized for project: {settings.gcp_project_id}")
 
     async def get_agent_by_bot_id(self, bot_id: str) -> Optional[Agent]:
@@ -1193,3 +1197,113 @@ class FirestoreService:
         except Exception as e:
             logger.error(f"Error updating session platforms for {session_id}: {e}")
             raise
+
+    # ------------------------------------------------------------------
+    # Conversation log (PLAT-43): conversations/{agent}__{user}/messages
+    # ------------------------------------------------------------------
+    def _messages_ref(self, agent_id: str, user_id: str):
+        return (
+            self.client.collection(self.conversations_collection)
+            .document(conversation_key(agent_id, user_id))
+            .collection(self.messages_collection)
+        )
+
+    @staticmethod
+    def _message_from_doc(doc) -> Optional[LoggedMessage]:
+        data = doc.to_dict()
+        for field in ("created_at", "expires_at"):
+            if field in data:
+                data[field] = to_aware_utc(data[field])
+        try:
+            return LoggedMessage(**data, id=doc.id)
+        except Exception as validation_error:
+            logger.warning(
+                f"Skipping logged message {doc.id} due to validation error: {validation_error}"
+            )
+            return None
+
+    async def append_message(self, message: LoggedMessage) -> str:
+        """Write one relayed message. Returns the new document id."""
+        doc_ref = self._messages_ref(message.agent_id, message.user_id).document()
+        await doc_ref.set(message.model_dump(exclude={"id"}))
+        return doc_ref.id
+
+    async def get_message(
+        self, agent_id: str, user_id: str, message_id: str
+    ) -> Optional[LoggedMessage]:
+        doc = await self._messages_ref(agent_id, user_id).document(message_id).get()
+        if not doc.exists:
+            return None
+        return self._message_from_doc(doc)
+
+    async def list_messages(
+        self,
+        agent_id: str,
+        user_id: str,
+        start: datetime,
+        end: datetime,
+        *,
+        after: Optional[datetime] = None,
+        limit: Optional[int] = None,
+    ) -> List[LoggedMessage]:
+        """
+        Messages in [start, end], oldest first.
+
+        ``after`` is the paging cursor: only messages created strictly after
+        it are returned. A range and an order on the one field need only the
+        automatic single-field index.
+        """
+        if after is not None and after >= start:
+            lower_bound = FieldFilter("created_at", ">", after)
+        else:
+            lower_bound = FieldFilter("created_at", ">=", start)
+        query = (
+            self._messages_ref(agent_id, user_id)
+            .where(filter=lower_bound)
+            .where(filter=FieldFilter("created_at", "<=", end))
+            .order_by("created_at")
+        )
+        if limit:
+            query = query.limit(limit)
+        messages: List[LoggedMessage] = []
+        async for doc in query.stream():
+            message = self._message_from_doc(doc)
+            if message:
+                messages.append(message)
+        return messages
+
+    async def list_messages_around(
+        self,
+        agent_id: str,
+        user_id: str,
+        anchor: LoggedMessage,
+        *,
+        before: int,
+        after: int,
+    ) -> tuple[List[LoggedMessage], List[LoggedMessage]]:
+        """The ``before`` messages preceding the anchor and the ``after`` following it, each oldest first."""
+        ref = self._messages_ref(agent_id, user_id)
+        preceding: List[LoggedMessage] = []
+        if before > 0:
+            query = (
+                ref.where(filter=FieldFilter("created_at", "<", anchor.created_at))
+                .order_by("created_at", direction="DESCENDING")
+                .limit(before)
+            )
+            async for doc in query.stream():
+                message = self._message_from_doc(doc)
+                if message:
+                    preceding.append(message)
+            preceding.reverse()
+        following: List[LoggedMessage] = []
+        if after > 0:
+            query = (
+                ref.where(filter=FieldFilter("created_at", ">", anchor.created_at))
+                .order_by("created_at")
+                .limit(after)
+            )
+            async for doc in query.stream():
+                message = self._message_from_doc(doc)
+                if message:
+                    following.append(message)
+        return preceding, following

@@ -120,13 +120,25 @@ class DiscordConnector(PlatformConnector):
             text: Message text of any length.
 
         Returns:
-            Discord API response dict for the LAST chunk sent.
+            Discord API response dict for the LAST chunk sent, plus a
+            ``message_ids`` list naming every chunk so the conversation log
+            can record a split reply once with all its ids.
         """
         chunks = self._chunk_text(text)
         result: dict = {}
+        message_ids: list[str] = []
         for chunk in chunks:
             result = await self._send_single(recipient_id, chunk)
-        return result
+            if result.get("id"):
+                message_ids.append(str(result["id"]))
+        return {**result, "message_ids": message_ids}
+
+    def sent_message_ids(self, send_result: dict) -> list[str]:
+        if not send_result:
+            return []
+        if send_result.get("message_ids"):
+            return [str(i) for i in send_result["message_ids"]]
+        return [str(send_result["id"])] if send_result.get("id") else []
 
     @staticmethod
     def _chunk_text(text: str, limit: int = 1900) -> list:
@@ -377,6 +389,7 @@ class DiscordConnector(PlatformConnector):
             space_id=channel_id,
             files=files,
             sent_at=sent_at,
+            message_id=str(message_id) if message_id else None,
             media_group_id=None,
             raw_event=data,
         )

@@ -357,5 +357,10 @@ class SlackConnector(PlatformConnector):
             space_id=channel_id,
             files=files,
             sent_at=sent_at,
+            message_id=str(ts) if ts else None,
             raw_event=data
         )
+
+    def sent_message_ids(self, send_result: dict) -> list[str]:
+        ts = send_result.get("ts") if send_result else None
+        return [str(ts)] if ts else []
