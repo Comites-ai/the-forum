@@ -199,3 +199,38 @@ async def test_a_scheduled_run_that_ends_on_a_silent_tool_leaves_its_marker(
 
     session = next(iter(fake_firestore.sessions.values()))
     assert session["active_run"]["last_tool"] == "write_sheet"
+
+
+# ---- Conversation log write points (PLAT-43) ----
+
+
+async def test_scheduled_exchange_is_logged_with_the_job_as_author(
+    executor, fake_firestore, fake_vertex_ai, fake_connector, job_id
+):
+    fake_vertex_ai.set_text_response(VERTEX_AGENT_ID, "Nothing new since last night.")
+
+    assert await executor.execute_job(job_id, execution_id="exec-log") is True
+
+    logged = fake_firestore.logged_messages(AGENT_ID, USER_ID)
+    assert [m.direction for m in logged] == ["inbound", "outbound"]
+    prompt, reply = logged
+    assert prompt.kind == "scheduled"
+    assert prompt.author == "hourly check"
+    assert prompt.text == "Anything new?"
+    assert prompt.platform == "slack"
+    assert reply.kind == "scheduled"
+    assert reply.author == "Agent"
+    assert reply.text == fake_connector.sent_messages[-1]["text"]
+    assert reply.text.startswith("*Scheduled: hourly check*")
+    assert reply.platform_message_ids == ["fake-msg-1"]
+
+
+async def test_silent_scheduled_reply_logs_only_the_prompt(
+    executor, fake_firestore, fake_vertex_ai, job_id
+):
+    fake_vertex_ai.set_text_response(VERTEX_AGENT_ID, f"{SILENT_SENTINEL} nothing to say")
+
+    assert await executor.execute_job(job_id, execution_id="exec-silent") is True
+
+    logged = fake_firestore.logged_messages(AGENT_ID, USER_ID)
+    assert [m.direction for m in logged] == ["inbound"]

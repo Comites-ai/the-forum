@@ -7,7 +7,7 @@ Exercises:
   PlatformEvent → IdentityService (creates user) → FirestoreService (loads agent)
   → VertexAIService (returns canned response) → PlatformConnector (sends reply)
 """
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 
 import pytest
 
@@ -502,3 +502,78 @@ async def test_empty_agent_response_falls_back_to_apology(
     )
     assert len(fake_connector.sent_messages) == 1
     assert "wasn't able to process" in fake_connector.sent_messages[0]["text"]
+
+
+# ---- Conversation log write points (PLAT-43) ----
+
+
+async def test_live_exchange_is_logged_in_both_directions(
+    processor, fake_firestore, fake_vertex_ai, fake_connector, seeded_agent
+):
+    fake_vertex_ai.set_text_response(
+        "projects/x/locations/us-central1/reasoningEngines/abc", "Hi from the agent"
+    )
+    fake_connector.set_user_info({"display_name": "Alice", "email": "alice@example.com"})
+    event = PlatformEvent(
+        platform="slack",
+        user_id="U_USER_001",
+        message_text="what's the weather?",
+        space_id="C_CHANNEL_001",
+        files=[{"mimetype": "application/pdf", "download_ref": "ignored"}],
+        message_id="1757700000.000100",
+        raw_event={},
+    )
+
+    await processor.process_platform_event(event=event, connector=fake_connector, agent_id=seeded_agent)
+
+    user = await fake_firestore.get_user_by_identity("slack", "U_USER_001")
+    logged = fake_firestore.logged_messages(seeded_agent, user.id)
+    assert [m.direction for m in logged] == ["inbound", "outbound"]
+
+    inbound, outbound = logged
+    assert inbound.text == "what's the weather?"  # the user's words, not the [From:] wrapper
+    assert inbound.author == "Alice"
+    assert inbound.platform == "slack"
+    assert inbound.kind == "live"
+    assert inbound.platform_message_ids == ["1757700000.000100"]
+    assert inbound.attachments == ["[file: application/pdf]"]
+    assert inbound.expires_at == inbound.created_at + timedelta(days=7)
+
+    assert outbound.text == "Hi from the agent"
+    assert outbound.author == "Test Agent"
+    assert outbound.platform_message_ids  # whatever the connector reported for the send
+    # The rejection notice for the PDF went out too, but it is a side
+    # message, not the reply: only the reply is logged.
+    assert len(fake_connector.sent_messages) == 2
+    assert outbound.text == fake_connector.sent_messages[-1]["text"]
+
+
+async def test_forum_fallback_copy_is_logged_as_the_reply(
+    processor, fake_firestore, fake_vertex_ai, fake_connector, seeded_agent
+):
+    fake_vertex_ai.set_response(
+        "projects/x/locations/us-central1/reasoningEngines/abc",
+        VertexAIResponse(text="", chunk_count=3, function_names=["lookup"]),
+    )
+    await processor.process_platform_event(
+        event=_slack_event("hello"), connector=fake_connector, agent_id=seeded_agent
+    )
+    user = await fake_firestore.get_user_by_identity("slack", "U_USER_001")
+    outbound = fake_firestore.logged_messages(seeded_agent, user.id)[-1]
+    assert outbound.direction == "outbound"
+    assert outbound.text == fake_connector.sent_messages[-1]["text"]
+    assert "broken tool" in outbound.text or "didn't respond" in outbound.text
+
+
+async def test_log_failure_never_costs_the_user_a_reply(
+    processor, fake_firestore, fake_vertex_ai, fake_connector, seeded_agent
+):
+    fake_firestore.append_message_error = RuntimeError("firestore down")
+    fake_vertex_ai.set_text_response(
+        "projects/x/locations/us-central1/reasoningEngines/abc", "still here"
+    )
+    await processor.process_platform_event(
+        event=_slack_event("hi"), connector=fake_connector, agent_id=seeded_agent
+    )
+    assert fake_connector.sent_messages[-1]["text"] == "still here"
+    assert fake_firestore.messages == {}

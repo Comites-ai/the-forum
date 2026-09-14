@@ -421,6 +421,13 @@ class TelegramConnector(PlatformConnector):
             space_id=chat_id,
             files=files,
             sent_at=sent_at,
+            message_id=(
+                str(message.get("message_id")) if message.get("message_id") is not None else None
+            ),
             media_group_id=media_group_id,
             raw_event=data
         )
+
+    def sent_message_ids(self, send_result: dict) -> list[str]:
+        message_id = ((send_result or {}).get("result") or {}).get("message_id")
+        return [str(message_id)] if message_id is not None else []

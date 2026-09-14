@@ -396,5 +396,10 @@ class GoogleChatConnector(PlatformConnector):
             space_id=space_id,
             files=files,
             sent_at=sent_at,
+            message_id=message.get("name") or None,
             raw_event=data
         )
+
+    def sent_message_ids(self, send_result: dict) -> list[str]:
+        name = (send_result or {}).get("name")
+        return [str(name)] if name else []

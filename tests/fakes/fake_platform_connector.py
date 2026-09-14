@@ -40,7 +40,14 @@ class FakePlatformConnector(PlatformConnector):
 
     async def send_message(self, recipient_id: str, text: str) -> dict:
         self.sent_messages.append({"recipient_id": recipient_id, "text": text})
-        return {"ok": True, "recipient_id": recipient_id}
+        return {
+            "ok": True,
+            "recipient_id": recipient_id,
+            "message_id": f"fake-msg-{len(self.sent_messages)}",
+        }
+
+    def sent_message_ids(self, send_result: dict) -> list[str]:
+        return [send_result["message_id"]] if send_result.get("message_id") else []
 
     async def download_file(self, download_ref: str) -> bytes:
         return self.file_responses.get(download_ref, b"fake-image-bytes")
@@ -63,5 +70,6 @@ class FakePlatformConnector(PlatformConnector):
             message_text=data.get("text", ""),
             space_id=data.get("space_id", "C_FAKE"),
             files=[],
+            message_id=data.get("message_id"),
             raw_event=data,
         )

@@ -67,3 +67,19 @@ def test_parse_event_photo_picks_largest_size():
     assert photo["mimetype"] == "image/jpeg"
     assert photo["download_ref"] == "AgACAgI_large"
     assert photo["size"] == 56789
+
+
+# ---- message ids for the conversation log (PLAT-43) ----
+
+
+def test_parse_event_carries_the_message_id():
+    connector = _make_connector()
+    update = load_fixture("telegram/private_message.json")
+    event = connector.parse_event(update)
+    assert event.message_id == str(update["message"]["message_id"])
+
+
+def test_sent_message_ids_reads_result_message_id():
+    connector = _make_connector()
+    assert connector.sent_message_ids({"ok": True, "result": {"message_id": 42}}) == ["42"]
+    assert connector.sent_message_ids({"ok": False}) == []

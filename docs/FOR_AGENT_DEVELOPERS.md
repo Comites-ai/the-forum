@@ -211,7 +211,7 @@ the Forum.
 
 ### Scheduler MCP Server
 
-The Forum hosts a single MCP server — the scheduler — at:
+The Forum hosts three MCP servers. The first is the scheduler, at:
 
 ```
 POST {forum_url}/api/v1/mcp/scheduler/       (Streamable HTTP, MCP spec 2025-03-26)
@@ -221,10 +221,12 @@ The trailing slash matters — the path is a Starlette `Mount`, so the
 bare form 307-redirects to `/scheduler/` and most MCP HTTP clients follow
 with GET instead of re-POSTing. Always include the slash.
 
-This is the **one** MCP server The Forum exposes. It wraps the existing
-`/api/v1/scheduled-jobs` REST API as MCP tools so your agent can manage
-user reminders directly through the LLM tool loop instead of you
-maintaining wrapper functions.
+It wraps the existing `/api/v1/scheduled-jobs` REST API as MCP tools so
+your agent can manage user reminders directly through the LLM tool loop
+instead of you maintaining wrapper functions. The other two servers, the
+[agents](#agents-mcp-server-agent-to-agent-communication) and
+[history](#history-mcp-server-your-own-conversations-verbatim) servers,
+share this one's transport and API key.
 
 #### Why this one is hosted by the Forum
 
@@ -445,6 +447,104 @@ claude mcp add --transport http forum-agents \
 ```
 
 Any provisioned agent key works; the caller identity will be that agent.
+
+### History MCP Server (your own conversations, verbatim)
+
+The Forum keeps every message it relays for **seven days** and serves it
+back to the agent that took part in it, verbatim, through a third MCP
+server:
+
+```
+POST {forum_url}/api/v1/mcp/history/       (Streamable HTTP, MCP spec 2025-03-26)
+```
+
+Same transport, same trailing-slash rule, same API key as the other two.
+
+#### Why it exists
+
+Without it, an agent's only record of a past exchange is whatever it
+chose to write into its own memory afterwards — a lossy, self-authored
+summary. That is how an agent ends up asserting something about last
+Tuesday, confidently and wrongly, until the user produces a screenshot.
+The Forum saw the actual text go by in both directions, on every
+platform, so it is the right place to keep it.
+
+#### What is logged
+
+Every message between you and a user, live or scheduled, in both
+directions: the user's words as sent, and your reply exactly as it was
+delivered (including any fallback copy the Forum sent on your behalf
+when you returned nothing). A reply the Forum split into several
+platform messages is one entry. Attachments appear as placeholders such
+as `[image: image/jpeg]`; bytes and URLs are never stored. Scheduled
+trigger prompts are logged as inbound messages authored by the job name.
+Agent-to-agent (`query_agent`) exchanges are **not** logged.
+
+Retention is a Firestore TTL policy on the log: entries disappear about
+seven days after they were written. There is no backfill.
+
+#### Tools exposed
+
+| Tool | Inputs | Returns |
+|---|---|---|
+| `search_history` | `user`, `query`, `date_from?`, `date_to?`, `author?` (`user`/`agent`), `limit?` (≤25) | ranked hits: `message_id`, localized `timestamp`, `author`, `platform`, ~200-char `snippet` |
+| `get_context` | `message_id`, `before?`, `after?` (default 5, ≤20 each) | the hit in full plus the messages around it, verbatim |
+| `get_messages` | `user`, `start`, `end`, `cursor?`, `limit?` (≤100) | a time range in order, paged via `next_cursor` |
+
+Ranking is deliberately simple: an exact phrase match (case-insensitive
+substring) first, then messages containing every word of the query,
+then some words, newer messages breaking ties. Phrase matching is what
+settles "didn't you tell me to move the SOW whole?"; there is no
+semantic search and nothing is summarised on the way out.
+
+Timestamps are localized to the user's timezone (their Forum
+`default_timezone`, else the Forum's default). Dates you pass in are read
+the same way: `2026-09-12` means that user's local day.
+
+**Every response is capped at 8,000 characters.** When the cap bites the
+response says `"truncated": true` and either gives a `next_cursor` or
+tells you how to narrow. Ask for a day, not a week.
+
+#### Scoping
+
+You only ever see your own conversations with the user you name. The
+caller is identified by its API key; `user` is validated against the
+Forum's user registry exactly as `on_behalf_of` is for `query_agent`
+(an unknown name is rejected, a user you have never spoken with returns
+nothing); and every `message_id` is bound to the conversation it came
+from, so a message id from another agent's history is refused.
+
+#### Wiring it into your ADK agent
+
+```python
+history_toolset = MCPToolset(
+    connection_params=StreamableHTTPConnectionParams(
+        url=f"{os.environ['FORUM_URL']}/api/v1/mcp/history/",   # trailing slash
+        headers={"X-API-Key": os.environ["SCHEDULER_MCP_KEY"]},
+    ),
+)
+```
+
+Prompt guidance:
+
+- The history is **read-only** and **pull-only**. The Forum never pushes
+  it into your turn; you look something up when a question turns on
+  what was actually said.
+- Quote what you retrieve as it is, with its timestamp. Never summarise
+  it into a claim it does not support.
+- When retrieved text contradicts your own memory, the retrieved text
+  wins — but say so to the user and correct the record together, rather
+  than silently overwriting what you believed.
+- Two steps: `search_history` for hits, then `get_context` on the one
+  that matters. Use `get_messages` only for a recap of a bounded range.
+
+#### Using it from Claude Code (development)
+
+```bash
+claude mcp add --transport http forum-history \
+  https://YOUR_FORUM_URL/api/v1/mcp/history/ \
+  --header "X-API-Key: YOUR_AGENT_MCP_KEY"
+```
 
 ### GCS Image Storage (Forum-operator setup)
 

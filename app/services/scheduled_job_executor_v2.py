@@ -19,6 +19,7 @@ from app.services.run_tracker import (
 from app.services.session_healer import SessionHealer, get_session_healer
 from app.services.vertex_ai_service import VertexAIService
 from app.services.identity_service import IdentityService
+from app.services.message_log import record_message
 from app.services.platforms.slack_connector import SlackConnector
 from app.services.platforms.google_chat_connector import GoogleChatConnector
 from app.services.platforms.telegram_connector import TelegramConnector
@@ -171,6 +172,19 @@ class ScheduledJobExecutorV2:
                 f"[From: {user_display_name} | {job.output_platform}_id: {recipient_id}] {job.prompt}"
             )
 
+            # The trigger prompt is the inbound half of a scheduled exchange;
+            # the job, not the user, is its author (PLAT-43).
+            await record_message(
+                self.firestore,
+                agent_id=job.agent_id,
+                user_id=job.user_id,
+                platform=job.output_platform,
+                direction="inbound",
+                author=job.name,
+                text=job.prompt,
+                kind="scheduled",
+            )
+
             response = await self.vertex_ai.send_message(
                 agent_id=agent.vertex_ai_agent_id,
                 session_id=session_id,
@@ -201,11 +215,22 @@ class ScheduledJobExecutorV2:
                 # Format message with job name for context
                 formatted_message = f"*Scheduled: {job.name}*\n\n{response.text}"
 
-                await connector.send_message(
+                sent = await connector.send_message(
                     recipient_id=conversation_id,
                     text=formatted_message,
                 )
                 logger.info(f"Sent response to {job.output_platform} for job {job_id}")
+                await record_message(
+                    self.firestore,
+                    agent_id=job.agent_id,
+                    user_id=job.user_id,
+                    platform=job.output_platform,
+                    direction="outbound",
+                    author=agent.display_name,
+                    text=formatted_message,
+                    kind="scheduled",
+                    platform_message_ids=connector.sent_message_ids(sent or {}),
+                )
 
                 # Step 11: Mark success and release lock
                 await self.firestore.release_job_execution_lock(job_id, success=True)

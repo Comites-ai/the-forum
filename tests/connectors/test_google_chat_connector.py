@@ -39,3 +39,17 @@ def test_parse_event_with_uploaded_attachment():
     assert f["source"] == "uploaded"
     assert "data" in f["download_ref"]
     assert f["name"] == "diagram.png"
+
+
+# ---- message ids for the conversation log (PLAT-43) ----
+
+
+def test_parse_event_carries_the_message_name():
+    payload = load_fixture("google_chat/message.json")
+    event = GoogleChatConnector.parse_event(None, payload)
+    assert event.message_id == payload["chat"]["messagePayload"]["message"]["name"]
+
+
+def test_sent_message_ids_reads_name():
+    assert GoogleChatConnector.sent_message_ids(None, {"name": "spaces/A/messages/B"}) == ["spaces/A/messages/B"]
+    assert GoogleChatConnector.sent_message_ids(None, {}) == []

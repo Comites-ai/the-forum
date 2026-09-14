@@ -15,6 +15,7 @@ from app.schemas.platform_event import PlatformEvent
 from app.services.firestore_service import FirestoreService
 from app.services.vertex_ai_service import VertexAIService
 from app.services.identity_service import IdentityService
+from app.services.message_log import attachment_placeholders, record_message
 from app.services.platforms.base import PlatformConnector
 from app.services.run_tracker import (
     CUT_OFF_STREAM_BROKE,
@@ -291,6 +292,21 @@ class MessageProcessorV2:
                 space_id=event.space_id
             )
 
+            # The conversation log keeps what the user said, whatever the
+            # file rules or the agent do with it next (PLAT-43).
+            await record_message(
+                self.firestore,
+                agent_id=agent_id,
+                user_id=user.id,
+                platform=event.platform,
+                direction="inbound",
+                author=user.primary_name,
+                text=event.message_text,
+                kind="live",
+                platform_message_ids=[event.message_id] if event.message_id else [],
+                attachments=attachment_placeholders(event.files),
+            )
+
             # What this agent can actually read. Agents that declare nothing
             # get the image allowlist, i.e. exactly their previous behavior.
             accepted_types = accepted_file_types_for(agent)
@@ -383,9 +399,13 @@ class MessageProcessorV2:
                 await self.firestore.mark_run_started(
                     session.id, active_run_marker(CUT_OFF_STREAM_BROKE)
                 )
-                await connector.send_message(
+                sent = await connector.send_message(
                     recipient_id=conversation_id,
                     text=ERR_STREAM_BROKEN,
+                )
+                await self._record_reply(
+                    agent_id, agent.display_name, user.id, event.platform,
+                    ERR_STREAM_BROKEN, connector, sent,
                 )
                 return
 
@@ -459,9 +479,13 @@ class MessageProcessorV2:
                         "Please try rephrasing or shortening your message."
                     )
 
-            await connector.send_message(
+            sent = await connector.send_message(
                 recipient_id=conversation_id,
                 text=response_text
+            )
+            await self._record_reply(
+                agent_id, agent.display_name, user.id, event.platform,
+                response_text, connector, sent,
             )
 
             # Structured fields here power the admin UI's per-platform
@@ -497,6 +521,29 @@ class MessageProcessorV2:
 
         except Exception as e:
             logger.exception(f"Unexpected error processing platform event: {e}")
+
+    async def _record_reply(
+        self,
+        agent_id: str,
+        agent_name: str,
+        user_id: str,
+        platform: str,
+        text: str,
+        connector: PlatformConnector,
+        send_result: dict,
+    ) -> None:
+        """Log what went out on the reply path, exactly as the user saw it."""
+        await record_message(
+            self.firestore,
+            agent_id=agent_id,
+            user_id=user_id,
+            platform=platform,
+            direction="outbound",
+            author=agent_name,
+            text=text,
+            kind="live",
+            platform_message_ids=connector.sent_message_ids(send_result or {}),
+        )
 
     async def _build_time_context(self, event, user, user_info: dict) -> str:
         """

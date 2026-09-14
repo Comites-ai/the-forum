@@ -13,6 +13,7 @@ import uuid
 
 from app.core.exceptions import DuplicateScheduledJobError, ScheduledJobReadError
 from app.models.agent import Agent
+from app.models.message import LoggedMessage, conversation_key
 from app.models.session import Session
 from app.models.scheduled_job import ScheduledJob, job_identity_key
 from app.models.user import User, PlatformIdentity
@@ -28,6 +29,10 @@ class FakeFirestoreService:
         self.scheduled_jobs: dict[str, dict] = {}
         self.users: dict[str, dict] = {}
         self.a2a_sessions: dict[str, dict] = {}
+        # Conversation log: conversation key -> ordered list of message dicts.
+        self.messages: dict[str, list[dict]] = {}
+        # Set by tests to make append_message fail (the relay must survive it).
+        self.append_message_error: Optional[Exception] = None
         # Set by tests to simulate a Firestore query failure (permissions,
         # transient error, missing index) on the scheduled_jobs collection.
         self.scheduled_jobs_query_error: Optional[Exception] = None
@@ -411,3 +416,65 @@ class FakeFirestoreService:
         identities = data.setdefault("identities", [])
         identities.append(identity.model_dump())
         data["updated_at"] = datetime.now(UTC)
+
+    # ---- Conversation log (PLAT-43) ----
+
+    def _conversation(self, agent_id: str, user_id: str) -> list[dict]:
+        return self.messages.setdefault(conversation_key(agent_id, user_id), [])
+
+    def logged_messages(self, agent_id: str, user_id: str) -> list[LoggedMessage]:
+        """Test helper: everything logged for one agent-user pair, oldest first."""
+        return [
+            LoggedMessage(**{k: v for k, v in d.items() if k != "id"}, id=d["id"])
+            for d in sorted(self._conversation(agent_id, user_id), key=lambda d: d["created_at"])
+        ]
+
+    async def append_message(self, message: LoggedMessage) -> str:
+        if self.append_message_error:
+            raise self.append_message_error
+        message_id = f"msg-{uuid.uuid4().hex[:8]}"
+        data = message.model_dump(exclude={"id"})
+        data["id"] = message_id
+        self._conversation(message.agent_id, message.user_id).append(data)
+        return message_id
+
+    async def get_message(
+        self, agent_id: str, user_id: str, message_id: str
+    ) -> Optional[LoggedMessage]:
+        for m in self.logged_messages(agent_id, user_id):
+            if m.id == message_id:
+                return m
+        return None
+
+    async def list_messages(
+        self,
+        agent_id: str,
+        user_id: str,
+        start: datetime,
+        end: datetime,
+        *,
+        after: Optional[datetime] = None,
+        limit: Optional[int] = None,
+    ) -> List[LoggedMessage]:
+        rows = [
+            m for m in self.logged_messages(agent_id, user_id)
+            if start <= m.created_at <= end and (after is None or m.created_at > after)
+        ]
+        return rows[:limit] if limit else rows
+
+    async def list_messages_around(
+        self,
+        agent_id: str,
+        user_id: str,
+        anchor: LoggedMessage,
+        *,
+        before: int,
+        after: int,
+    ) -> tuple[List[LoggedMessage], List[LoggedMessage]]:
+        rows = self.logged_messages(agent_id, user_id)
+        preceding = [m for m in rows if m.created_at < anchor.created_at]
+        following = [m for m in rows if m.created_at > anchor.created_at]
+        return (
+            preceding[-before:] if before > 0 else [],
+            following[:after] if after > 0 else [],
+        )
