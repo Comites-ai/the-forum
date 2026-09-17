@@ -433,6 +433,21 @@ Prompt guidance for BOTH sides of an A2A exchange:
   prefix through as `on_behalf_of` verbatim. Prefer the target's
   published `request_format`.
 
+#### How long you have to answer
+
+The Forum waits **240 seconds** for a queried agent's reply, which is as
+long as it can wait: the whole call rides inside one Cloud Run request,
+and Cloud Run cuts the request off at 300s regardless. A turn that needs
+longer than that has to be restructured — acknowledge the request and
+report back later, rather than holding the line.
+
+When the Forum gives up it tells the caller so, but note what that error
+does *not* mean. The Forum has stopped listening; the target engine is
+almost certainly still running and finishing what it was asked to do.
+**A timeout says the reply was lost, not that the work was undone.** If
+you are the caller and the request had side effects, ask the target for
+the current state before sending it again — a blind retry double-writes.
+
 #### Using it from Claude Code (development)
 
 The agents MCP server is also handy while *building* agents: attach

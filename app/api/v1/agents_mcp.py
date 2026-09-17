@@ -38,6 +38,7 @@ import asyncio
 import contextvars
 import json
 import logging
+import time
 from typing import Any, Optional
 
 from mcp.server.lowlevel import Server
@@ -60,20 +61,86 @@ from app.services.vertex_ai_service import VertexAIService
 logger = logging.getLogger(__name__)
 
 # How long query_agent waits for the target agent's reply. Reasoning-engine
-# turns with several tool calls can take a while; callers should treat a
-# timeout as "try again later", not as a missing feature on the target.
-QUERY_TIMEOUT_SECONDS = 120
+# turns with several tool calls can take a while; a timeout says the target
+# is slow, never that it lacks the capability.
+#
+# 240s, not more: query_agent runs inside an inbound Cloud Run request, and
+# Cloud Run's own request timeout is 300s. Past that the request is killed
+# outright and the `except asyncio.TimeoutError` branch below never runs, so
+# the marker would never get its reason and the caller would get nothing it
+# could act on. 240 leaves margin for the Firestore writes either side.
+#
+# It was 120s, which was cutting off ordinary A2A calls several times a week
+# (#26). Raising it is half the answer; the other half is `_log_a2a_query`,
+# which records how long these calls actually take so the next move — an
+# asynchronous query_agent, or nothing — is decided from data rather than
+# from another guess at a number.
+QUERY_TIMEOUT_SECONDS = 240
 
 # Collection holding the A2A session docs the run marker rides on. Matches
 # FirestoreService.a2a_sessions_collection.
 A2A_SESSIONS = "a2a_sessions"
+
+# How one query_agent call to the engine ended. Values are part of the
+# `a2a_query` log contract — keep them stable.
+QUERY_REPLIED = "replied"
+QUERY_EMPTY_REPLY = "empty_reply"
+QUERY_TIMED_OUT = "timed_out"
+QUERY_FAILED = "failed"
+
+
+def _log_a2a_query(
+    *,
+    caller: Agent,
+    target: Agent,
+    session_id: str,
+    duration_seconds: float,
+    outcome: str,
+    chunk_count: Optional[int] = None,
+) -> None:
+    """
+    Record how long one query_agent call to the engine actually took.
+
+    This is the measurement the timeout argument turns on, and nothing else
+    in the Forum supplies it. `run_cut_off` cannot: its `elapsed_seconds` is
+    detection lag — how long a marker sat before the *next* turn noticed it
+    — not the duration of a call.
+
+    Every outcome is logged, not just the successful ones, so the share of
+    calls that time out is computable rather than inferred. `timeout_seconds`
+    rides along on every row because a sample of completed calls is censored
+    at whatever ceiling was in force when it was collected: the distribution
+    is only readable against its limit, and the limit changes.
+
+    The `json_fields` names are a log-query contract the same way
+    `run_cut_off`'s are — keep them stable.
+    """
+    logger.info(
+        f"A2A query {caller.display_name} -> {target.display_name}: "
+        f"{outcome} after {duration_seconds:.1f}s",
+        extra={
+            "json_fields": {
+                "event": "a2a_query",
+                "agent_id": target.vertex_ai_agent_id,
+                "caller_agent_id": caller.vertex_ai_agent_id,
+                "caller": caller.display_name,
+                "target": target.display_name,
+                "session_id": session_id,
+                "platform": "a2a",
+                "outcome": outcome,
+                "duration_seconds": round(duration_seconds, 1),
+                "timeout_seconds": QUERY_TIMEOUT_SECONDS,
+                "chunk_count": chunk_count,
+            }
+        },
+    )
 
 
 async def _recover_from_cut_off_run(entry: dict, target: Agent, session_id: str) -> None:
     """
     Deal with a previous query on this session that never came back.
 
-    The 120s `wait_for` above is a real cut-off: the Forum stops listening
+    The `wait_for` in `_query` is a real cut-off: the Forum stops listening
     while the engine may still be mid-tool, which is exactly how a
     `function_call` ends up with no result. Logging it is unconditional and
     is the signal that says whether the timeout wants tuning; repairing the
@@ -312,6 +379,18 @@ async def _handle_query_agent(args: dict[str, Any]) -> str:
         await firestore.mark_run_started(
             session_key, active_run_marker(), collection=A2A_SESSIONS
         )
+        started = time.monotonic()
+
+        def _log(outcome: str, chunk_count: Optional[int] = None) -> None:
+            _log_a2a_query(
+                caller=caller,
+                target=target,
+                session_id=session_id,
+                duration_seconds=time.monotonic() - started,
+                outcome=outcome,
+                chunk_count=chunk_count,
+            )
+
         try:
             response = await asyncio.wait_for(
                 vertex_ai.send_message(
@@ -330,11 +409,29 @@ async def _handle_query_agent(args: dict[str, Any]) -> str:
                 active_run_marker(CUT_OFF_TIMEOUT),
                 collection=A2A_SESSIONS,
             )
+            _log(QUERY_TIMED_OUT)
+            # Deliberately not "try again later": the target is most likely
+            # still working, so whatever was asked for may already have been
+            # done. A blind retry of a non-idempotent request double-writes.
             raise ValueError(
-                f"{target.display_name} did not reply within {QUERY_TIMEOUT_SECONDS}s. "
-                f"Try again later."
+                f"{target.display_name} did not reply within {QUERY_TIMEOUT_SECONDS}s, "
+                f"so the Forum stopped waiting. Its reply is lost, but the work is "
+                f"probably still running and anything you asked it to change may "
+                f"already have happened. Ask it for the current state before sending "
+                f"the same request again."
             )
-        if response.text and response.text.strip():
+        except Exception:
+            # Logged so the timed-out share is a fraction of every call, not
+            # only of the ones that came back one way or another.
+            _log(QUERY_FAILED)
+            raise
+
+        replied = bool(response.text and response.text.strip())
+        _log(
+            QUERY_REPLIED if replied else QUERY_EMPTY_REPLY,
+            chunk_count=response.chunk_count,
+        )
+        if replied:
             await firestore.clear_active_run(session_key, collection=A2A_SESSIONS)
         return response
 
