@@ -10,6 +10,7 @@ prefix / per-(caller,target,user) session reuse / validation errors.
 """
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -400,3 +401,155 @@ async def test_query_agent_heals_a_session_a_cut_off_run_left_behind(
     assert calls[0]["agent_id"] == TARGET_VERTEX_ID
     assert calls[0]["session_id"] == entry["vertex_ai_session_id"]
     assert calls[0]["reason"] == CUT_OFF_TIMEOUT
+
+
+# ---------------------------------------------------------------------------
+# The query ceiling and its instrumentation (#26)
+# ---------------------------------------------------------------------------
+
+
+def _a2a_query_rows(caplog) -> list[dict]:
+    return [
+        r.json_fields
+        for r in caplog.records
+        if getattr(r, "json_fields", {}).get("event") == "a2a_query"
+    ]
+
+
+def test_query_timeout_stays_under_cloud_runs_request_timeout():
+    """query_agent runs inside an inbound Cloud Run request. Past Cloud Run's
+    own 300s the request is killed outright, the TimeoutError branch never
+    runs, and the caller gets nothing it can act on — so the ceiling must
+    leave real margin under it."""
+    assert agents_mcp.QUERY_TIMEOUT_SECONDS <= 240
+
+
+async def test_query_agent_logs_duration_and_outcome(
+    caplog, fake_firestore, fake_vertex, request_ctx
+):
+    """The `a2a_query` field names are a log-query contract; they should not
+    drift. This is the only place a real call duration is recorded."""
+    await _seed_user(fake_firestore)
+    fake_vertex.set_text_response(TARGET_VERTEX_ID, "ok")
+
+    with caplog.at_level(logging.INFO, logger="app.api.v1.agents_mcp"):
+        await agents_mcp._handle_query_agent({
+            "agent_name": "Mickey Marathon",
+            "message": "hello",
+            "on_behalf_of": "Jonathan Cavell",
+        })
+
+    rows = _a2a_query_rows(caplog)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["outcome"] == agents_mcp.QUERY_REPLIED
+    assert row["agent_id"] == TARGET_VERTEX_ID
+    assert row["caller_agent_id"] == CALLER_VERTEX_ID
+    assert row["caller"] == "Nora the Nutritionist"
+    assert row["target"] == "Mickey Marathon"
+    assert row["platform"] == "a2a"
+    assert row["chunk_count"] == 1
+    assert isinstance(row["duration_seconds"], float)
+    # Logged on every row: a sample of completed calls is censored at
+    # whatever ceiling was in force, so the two only mean anything together.
+    assert row["timeout_seconds"] == agents_mcp.QUERY_TIMEOUT_SECONDS
+
+
+async def test_query_agent_logs_a_timed_out_outcome(
+    caplog, monkeypatch, fake_firestore, fake_vertex, request_ctx
+):
+    await _seed_user(fake_firestore)
+
+    async def _never_answers(*args, **kwargs):
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(fake_vertex, "send_message", _never_answers)
+
+    with caplog.at_level(logging.INFO, logger="app.api.v1.agents_mcp"):
+        with pytest.raises(ValueError):
+            await agents_mcp._handle_query_agent({
+                "agent_name": "Mickey Marathon",
+                "message": "hello",
+                "on_behalf_of": "Jonathan Cavell",
+            })
+
+    rows = _a2a_query_rows(caplog)
+    assert [r["outcome"] for r in rows] == [agents_mcp.QUERY_TIMED_OUT]
+
+
+async def test_query_agent_logs_every_engine_call_not_just_the_last(
+    caplog, fake_firestore, fake_vertex, request_ctx
+):
+    """The empty-reply retry makes two engine calls. Both get a row, so the
+    timed-out share is a fraction of every call rather than of turns."""
+    user_id = await _seed_user(fake_firestore)
+    from app.services.vertex_ai_service import VertexAIResponse
+
+    key = agents_mcp._a2a_session_key("agent-nora", "agent-mickey", user_id)
+    fake_firestore.a2a_sessions[key] = {
+        "vertex_ai_session_id": "u:dead-but-engine-matches",
+        "engine_id": TARGET_VERTEX_ID,
+    }
+    fake_vertex.queue_response(TARGET_VERTEX_ID, VertexAIResponse(text="", chunk_count=0))
+    fake_vertex.queue_response(TARGET_VERTEX_ID, VertexAIResponse(text="recovered", chunk_count=1))
+
+    with caplog.at_level(logging.INFO, logger="app.api.v1.agents_mcp"):
+        await agents_mcp._handle_query_agent({
+            "agent_name": "Mickey Marathon",
+            "message": "hello",
+            "on_behalf_of": "Jonathan Cavell",
+        })
+
+    rows = _a2a_query_rows(caplog)
+    assert [r["outcome"] for r in rows] == [
+        agents_mcp.QUERY_EMPTY_REPLY,
+        agents_mcp.QUERY_REPLIED,
+    ]
+
+
+async def test_query_agent_logs_a_failed_outcome(
+    caplog, monkeypatch, fake_firestore, fake_vertex, request_ctx
+):
+    await _seed_user(fake_firestore)
+
+    async def _breaks(*args, **kwargs):
+        raise RuntimeError("stream broke")
+
+    monkeypatch.setattr(fake_vertex, "send_message", _breaks)
+
+    with caplog.at_level(logging.INFO, logger="app.api.v1.agents_mcp"):
+        with pytest.raises(RuntimeError):
+            await agents_mcp._handle_query_agent({
+                "agent_name": "Mickey Marathon",
+                "message": "hello",
+                "on_behalf_of": "Jonathan Cavell",
+            })
+
+    rows = _a2a_query_rows(caplog)
+    assert [r["outcome"] for r in rows] == [agents_mcp.QUERY_FAILED]
+
+
+async def test_timeout_message_warns_the_work_may_already_have_landed(
+    monkeypatch, fake_firestore, fake_vertex, request_ctx
+):
+    """This text lands in a calling agent's conversation history. "Try again
+    later" invited a blind retry of a request whose side effects may already
+    have committed — which is how Linear issues got moved twice."""
+    await _seed_user(fake_firestore)
+
+    async def _never_answers(*args, **kwargs):
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(fake_vertex, "send_message", _never_answers)
+
+    with pytest.raises(ValueError) as excinfo:
+        await agents_mcp._handle_query_agent({
+            "agent_name": "Mickey Marathon",
+            "message": "hello",
+            "on_behalf_of": "Jonathan Cavell",
+        })
+
+    text = str(excinfo.value)
+    assert "Try again later" not in text
+    assert "may already have happened" in text
+    assert str(agents_mcp.QUERY_TIMEOUT_SECONDS) in text
