@@ -405,7 +405,8 @@ the registry is a promise to other agents.
 |---|---|---|
 | `list_agents` | — | every other agent's `display_name`, `description`, inquiry names |
 | `get_agent_inquiries` | `agent_name` | the agent's full inquiry records |
-| `query_agent` | `agent_name`, `message`, `on_behalf_of` | `{agent, on_behalf_of, reply}` |
+| `query_agent` | `agent_name`, `message`, `on_behalf_of` | `{agent, on_behalf_of, query_id, reply}` |
+| `get_query_status` | `query_id`, or `agent_name` + `on_behalf_of` (+ `limit`) | what became of an earlier `query_agent` call: delivered? replied? (see below) |
 
 #### The on-behalf-of contract
 
@@ -447,6 +448,52 @@ almost certainly still running and finishing what it was asked to do.
 **A timeout says the reply was lost, not that the work was undone.** If
 you are the caller and the request had side effects, ask the target for
 the current state before sending it again — a blind retry double-writes.
+The timeout error carries the call's `query_id`, and the Forum keeps
+listening after it has answered you: if the target's reply arrives late,
+`get_query_status` will hand it to you.
+
+#### Delivery receipts: telling "not sent" from "sent, reply lost"
+
+Every `query_agent` call leaves a record on the Forum from the moment the
+message is handed to the target's engine. Its id, the `query_id`, comes
+back in the result and in the text of every error. `get_query_status`
+reads the record:
+
+- **By id** — `get_query_status(query_id=...)` returns that one call.
+- **By target and user** — `get_query_status(agent_name=..., on_behalf_of=...)`
+  lists your most recent queries to that agent for that user, newest
+  first. This is the form for the case the receipt exists for: your MCP
+  client dropped the connection mid-call and you never saw a result, so
+  you have no id.
+
+Each record reports `status`, `delivered`, the timestamps, the message you
+sent (so you can recognise it), the reply if there is one, and a `meaning`
+line saying what to do. The statuses:
+
+| status | what it means |
+|---|---|
+| `sent` | handed to the engine, nothing heard back yet (in flight, or the Forum was cut off before recording an outcome) |
+| `delivered` | the engine has the message and has started answering; no outcome recorded yet |
+| `replied` | delivered and answered; `reply` is included |
+| `timed_out` | the Forum stopped waiting; `delivered` says whether the engine had started. A late reply, if one comes, replaces this |
+| `empty_reply` | delivered; the target ran its turn (tools, thinking) but ended it without text |
+| `failed` | the engine call broke; `delivered` says whether it had the message first |
+
+**No record at all means the message never reached the engine**, and
+resending is safe. Records are kept for seven days.
+
+The rule for callers: treat a lost connection, a timeout, and any error
+as *delivery unknown*, not as *not delivered*. Check the receipt, then
+either read the reply, ask the target for the current state, or resend,
+in that order of preference. Never resend blind. This matters because the
+ADK's MCP client can drop a session while a concurrent turn is running,
+which surfaces as `MCP session connection lost` on calls the Forum
+answered perfectly well.
+
+For the same reason the Forum itself no longer resends on your behalf
+when the target returns no text but demonstrably ran (it used to retry
+once on any empty reply; now only the zero-chunk dead-session signature
+triggers that).
 
 #### Using it from Claude Code (development)
 
@@ -493,7 +540,8 @@ when you returned nothing). A reply the Forum split into several
 platform messages is one entry. Attachments appear as placeholders such
 as `[image: image/jpeg]`; bytes and URLs are never stored. Scheduled
 trigger prompts are logged as inbound messages authored by the job name.
-Agent-to-agent (`query_agent`) exchanges are **not** logged.
+Agent-to-agent (`query_agent`) exchanges are **not** logged here; their
+delivery receipts are (see `get_query_status` above).
 
 Retention is a Firestore TTL policy on the log: entries disappear about
 seven days after they were written. There is no backfill.

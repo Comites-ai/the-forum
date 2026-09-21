@@ -3,7 +3,7 @@
 
 """Vertex AI Reasoning Engine service."""
 import logging
-from typing import Optional
+from typing import Callable, Optional
 import uuid
 import asyncio
 import json
@@ -149,7 +149,11 @@ class VertexAIService:
             raise
 
     async def send_message(
-        self, agent_id: str, session_id: str, message: str
+        self,
+        agent_id: str,
+        session_id: str,
+        message: str,
+        on_first_chunk: Optional[Callable[[], None]] = None,
     ) -> VertexAIResponse:
         """
         Send message to Vertex AI Reasoning Engine and get response.
@@ -158,6 +162,11 @@ class VertexAIService:
             agent_id: Vertex AI reasoning engine resource name
             session_id: Combined user_id:session_id from create_session
             message: User message text (may contain embedded image references)
+            on_first_chunk: Called on the event loop as soon as the engine
+                sends anything back — the earliest proof it has the
+                message. Used for A2A delivery receipts (PLAT-51). Runs
+                before this coroutine returns, and never if the engine
+                sends nothing.
 
         Returns:
             VertexAIResponse containing agent's response text
@@ -199,12 +208,23 @@ class VertexAIService:
             # case so the caller can distinguish them.
             loop = asyncio.get_event_loop()
 
-            stream_state = {"partial_chunks": 0, "stream_error": None}
+            stream_state = {"partial_chunks": 0, "stream_error": None, "notified": False}
+
+            def _notify_first_chunk():
+                # Runs on the loop thread. A failing callback is the
+                # receipt's problem, never the reply's.
+                try:
+                    on_first_chunk()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"on_first_chunk callback failed: {exc}")
 
             def stream_query():
                 responses = []
                 try:
                     for chunk in exec_client.stream_query_reasoning_engine(request=request):
+                        if on_first_chunk is not None and not stream_state["notified"]:
+                            stream_state["notified"] = True
+                            loop.call_soon_threadsafe(_notify_first_chunk)
                         if chunk.data:
                             chunk_str = chunk.data.decode('utf-8')
                             responses.append(chunk_str)

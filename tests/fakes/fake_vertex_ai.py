@@ -7,7 +7,7 @@ Records every send_message call and returns canned VertexAIResponse objects.
 Tests can preload a response by agent_id; the default is a simple echo.
 """
 import uuid
-from typing import Optional
+from typing import Callable, Optional
 
 from app.services.vertex_ai_service import VertexAIResponse
 
@@ -51,7 +51,11 @@ class FakeVertexAIService:
         return combined_id
 
     async def send_message(
-        self, agent_id: str, session_id: str, message: str
+        self,
+        agent_id: str,
+        session_id: str,
+        message: str,
+        on_first_chunk: Optional[Callable[[], None]] = None,
     ) -> VertexAIResponse:
         self.messages_sent.append(
             {"agent_id": agent_id, "session_id": session_id, "message": message}
@@ -60,7 +64,13 @@ class FakeVertexAIService:
             raise self.errors[agent_id]
         queue = self.response_queues.get(agent_id)
         if queue:
-            return queue.pop(0)
-        if agent_id in self.canned_responses:
-            return self.canned_responses[agent_id]
-        return VertexAIResponse(text=self.default_response_text, chunk_count=1)
+            response = queue.pop(0)
+        elif agent_id in self.canned_responses:
+            response = self.canned_responses[agent_id]
+        else:
+            response = VertexAIResponse(text=self.default_response_text, chunk_count=1)
+        # Like the real service: the callback fires only if the engine sent
+        # something back, and before the reply is returned.
+        if on_first_chunk is not None and response.chunk_count > 0:
+            on_first_chunk()
+        return response
