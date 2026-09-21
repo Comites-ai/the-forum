@@ -12,6 +12,7 @@ from typing import List, Optional
 import uuid
 
 from app.core.exceptions import DuplicateScheduledJobError, ScheduledJobReadError
+from app.models.a2a_query import A2AQuery
 from app.models.agent import Agent
 from app.models.message import LoggedMessage, conversation_key
 from app.models.session import Session
@@ -29,10 +30,14 @@ class FakeFirestoreService:
         self.scheduled_jobs: dict[str, dict] = {}
         self.users: dict[str, dict] = {}
         self.a2a_sessions: dict[str, dict] = {}
+        # Delivery receipts (PLAT-51), keyed by A2A session key.
+        self.a2a_queries: dict[str, list[dict]] = {}
         # Conversation log: conversation key -> ordered list of message dicts.
         self.messages: dict[str, list[dict]] = {}
         # Set by tests to make append_message fail (the relay must survive it).
         self.append_message_error: Optional[Exception] = None
+        # Make the receipt writes fail, to prove the relay survives it.
+        self.a2a_query_error: Optional[Exception] = None
         # Set by tests to simulate a Firestore query failure (permissions,
         # transient error, missing index) on the scheduled_jobs collection.
         self.scheduled_jobs_query_error: Optional[Exception] = None
@@ -103,6 +108,47 @@ class FakeFirestoreService:
 
     async def delete_a2a_session(self, session_key: str) -> None:
         self.a2a_sessions.pop(session_key, None)
+
+    # ---- Delivery receipts (PLAT-51) ----
+
+    def _queries(self, session_key: str) -> list[dict]:
+        return self.a2a_queries.setdefault(session_key, [])
+
+    def a2a_query_records(self, session_key: str) -> list[A2AQuery]:
+        """Test helper: every receipt for one A2A conversation, oldest first."""
+        return [
+            A2AQuery(**{k: v for k, v in d.items() if k != "id"}, id=d["id"])
+            for d in sorted(self._queries(session_key), key=lambda d: d["sent_at"])
+        ]
+
+    async def create_a2a_query(self, session_key: str, query: A2AQuery) -> str:
+        if self.a2a_query_error:
+            raise self.a2a_query_error
+        query_id = f"q-{uuid.uuid4().hex[:8]}"
+        data = query.model_dump(exclude={"id"})
+        data["id"] = query_id
+        self._queries(session_key).append(data)
+        return query_id
+
+    async def update_a2a_query(self, session_key: str, query_id: str, fields: dict) -> None:
+        if self.a2a_query_error:
+            raise self.a2a_query_error
+        for d in self._queries(session_key):
+            if d["id"] == query_id:
+                d.update(fields)
+                return
+        raise KeyError(query_id)
+
+    async def get_a2a_query(self, session_key: str, query_id: str) -> Optional[A2AQuery]:
+        for record in self.a2a_query_records(session_key):
+            if record.id == query_id:
+                return record
+        return None
+
+    async def list_a2a_queries(self, session_key: str, limit: int) -> List[A2AQuery]:
+        records = self.a2a_query_records(session_key)
+        records.reverse()
+        return records[:limit]
 
     # ---- In-flight run markers (see app/services/run_tracker.py) ----
 

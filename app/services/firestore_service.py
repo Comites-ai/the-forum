@@ -6,10 +6,11 @@ import logging
 from datetime import datetime, timedelta, UTC
 from typing import List, Optional
 
-from google.cloud.firestore import AsyncClient, FieldFilter, ArrayUnion
+from google.cloud.firestore import AsyncClient, FieldFilter, ArrayUnion, Query
 
 from app.config import get_settings
 from app.core.exceptions import DuplicateScheduledJobError, ScheduledJobReadError
+from app.models.a2a_query import A2AQuery
 from app.models.agent import Agent
 from app.models.message import LoggedMessage, conversation_key
 from app.models.session import Session
@@ -35,6 +36,8 @@ class FirestoreService:
         # Kept separate from `sessions` so A2A traffic never pollutes the
         # user-session model or the admin UI's session views.
         self.a2a_sessions_collection = "a2a_sessions"
+        # Delivery receipts (PLAT-51): a subcollection of each a2a_sessions doc.
+        self.a2a_queries_collection = "a2a_queries"
         # Conversation log (PLAT-43): one subcollection per agent-user pair.
         self.conversations_collection = "conversations"
         self.messages_collection = "messages"
@@ -345,6 +348,62 @@ class FirestoreService:
             await self.client.collection(self.a2a_sessions_collection).document(session_key).delete()
         except Exception as e:
             logger.error(f"Error deleting a2a session {session_key}: {e}")
+
+    # ---- Delivery receipts (PLAT-51) ----
+    #
+    # One document per query_agent call, under the A2A session it belongs
+    # to. Unlike the session helpers above these raise on failure: the
+    # caller (agents_mcp._QueryRecord) decides that a lost receipt must not
+    # fail the relay, and says so once, there.
+
+    def _a2a_queries_ref(self, session_key: str):
+        return (
+            self.client.collection(self.a2a_sessions_collection)
+            .document(session_key)
+            .collection(self.a2a_queries_collection)
+        )
+
+    @staticmethod
+    def _a2a_query_from_doc(doc) -> Optional[A2AQuery]:
+        data = doc.to_dict()
+        for field in ("sent_at", "delivered_at", "finished_at", "expires_at"):
+            if data.get(field) is not None:
+                data[field] = to_aware_utc(data[field])
+        try:
+            return A2AQuery(**data, id=doc.id)
+        except Exception as e:
+            logger.warning(f"Skipping unreadable a2a query {doc.id}: {e}")
+            return None
+
+    async def create_a2a_query(self, session_key: str, query: A2AQuery) -> str:
+        """Write the record for one query_agent call. Returns the document id."""
+        doc_ref = self._a2a_queries_ref(session_key).document()
+        await doc_ref.set(query.model_dump(exclude={"id"}))
+        return doc_ref.id
+
+    async def update_a2a_query(self, session_key: str, query_id: str, fields: dict) -> None:
+        """Merge `fields` into one query record."""
+        await self._a2a_queries_ref(session_key).document(query_id).update(fields)
+
+    async def get_a2a_query(self, session_key: str, query_id: str) -> Optional[A2AQuery]:
+        doc = await self._a2a_queries_ref(session_key).document(query_id).get()
+        if not doc.exists:
+            return None
+        return self._a2a_query_from_doc(doc)
+
+    async def list_a2a_queries(self, session_key: str, limit: int) -> List[A2AQuery]:
+        """The newest `limit` query records for one A2A conversation, newest first."""
+        query = (
+            self._a2a_queries_ref(session_key)
+            .order_by("sent_at", direction=Query.DESCENDING)
+            .limit(limit)
+        )
+        out: List[A2AQuery] = []
+        async for doc in query.stream():
+            record = self._a2a_query_from_doc(doc)
+            if record is not None:
+                out.append(record)
+        return out
 
     async def get_scheduled_job(self, job_id: str) -> Optional[ScheduledJob]:
         """
