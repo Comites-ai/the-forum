@@ -3,6 +3,7 @@
 
 """Scheduled job execution service (v2 - multi-platform)."""
 import logging
+import re
 from datetime import datetime, timedelta, UTC
 from typing import Optional
 
@@ -28,12 +29,31 @@ from app.services.platforms.base import PlatformConnector
 
 logger = logging.getLogger(__name__)
 
-# An agent reply that starts with this sentinel means "the job ran fine but
-# there is nothing worth telling the user" (e.g. an hourly check that found
-# no new data). The execution is recorded as a success and NO message is
-# delivered. Without this, condition-check jobs would either spam the user
-# on every tick or return empty replies — which are treated as failures.
+# An agent reply that starts or ends with this sentinel means "the job ran
+# fine but there is nothing worth telling the user" (e.g. an hourly check
+# that found no new data). The execution is recorded as a success and NO
+# message is delivered. Without this, condition-check jobs would either spam
+# the user on every tick or return empty replies — which are treated as
+# failures.
 SILENT_SENTINEL = "[SILENT]"
+
+# Models dress the token up: **[SILENT]**, `[SILENT]`, [ SILENT ], [SILENT].
+_SILENT_TOKEN = r"[*_`]*\[\s*SILENT\s*\]"
+_SILENT_AT_START = re.compile(rf"^{_SILENT_TOKEN}")
+_SILENT_AT_END = re.compile(rf"{_SILENT_TOKEN}[*_`.!]*$")
+
+
+def is_silent_reply(text: Optional[str]) -> bool:
+    """
+    True when a job's reply declines delivery.
+
+    The token counts at the start ("[SILENT] nothing new") or at the end,
+    because some models explain first and decide last. Anywhere else it is
+    delivered as written: the Forum can't ask the model what it meant
+    without writing to the session.
+    """
+    reply = (text or "").strip()
+    return bool(_SILENT_AT_START.search(reply) or _SILENT_AT_END.search(reply))
 
 
 class ScheduledJobExecutorV2:
@@ -193,10 +213,10 @@ class ScheduledJobExecutorV2:
 
             await self._close_out_run(session.id, response)
 
-            # Step 10: A [SILENT]-prefixed reply means the job ran fine but has
-            # nothing to tell the user — record success, deliver nothing.
-            reply_text = (response.text or "").strip()
-            if reply_text.startswith(SILENT_SENTINEL):
+            # Step 10: A reply that starts or ends with [SILENT] means the job
+            # ran fine but has nothing to tell the user — record success,
+            # deliver nothing.
+            if is_silent_reply(response.text):
                 await self.firestore.release_job_execution_lock(job_id, success=True)
                 if job.retry_at:
                     await self.firestore.update_scheduled_job(job_id, {
@@ -568,7 +588,7 @@ class ScheduledJobExecutorV2:
 
             # Honor the silent sentinel in test runs too, so a test of a
             # condition-check job behaves like the real thing.
-            if (response.text or "").strip().startswith(SILENT_SENTINEL):
+            if is_silent_reply(response.text):
                 return {
                     "success": True,
                     "response": response.text,

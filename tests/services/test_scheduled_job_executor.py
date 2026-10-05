@@ -4,14 +4,18 @@
 """ScheduledJobExecutorV2 tests against the fakes.
 
 Focus: the reply-delivery decision — normal replies are delivered, empty
-replies are failures, and [SILENT]-prefixed replies are recorded as
-successes with nothing delivered.
+replies are failures, and replies that start or end with [SILENT] are
+recorded as successes with nothing delivered.
 """
 import pytest
 
 from app.models.agent import Agent
 from app.models.scheduled_job import ScheduledJob
-from app.services.scheduled_job_executor_v2 import ScheduledJobExecutorV2, SILENT_SENTINEL
+from app.services.scheduled_job_executor_v2 import (
+    ScheduledJobExecutorV2,
+    SILENT_SENTINEL,
+    is_silent_reply,
+)
 from app.services.vertex_ai_service import VertexAIResponse
 
 from tests.fakes.fake_platform_connector import FakePlatformConnector
@@ -127,7 +131,51 @@ async def test_silent_reply_clears_pending_retry(
     assert fake_connector.sent_messages == []
 
 
-async def test_sentinel_must_be_prefix_not_substring(
+SILENT_REPLIES = [
+    "[SILENT]",
+    "[SILENT] nothing new since last check",
+    "No workout logged yet and it's only 9am, so no nudge.\n\n[SILENT]",
+    "**[SILENT]**",
+    "`[SILENT]`",
+    "[ SILENT ]",
+    "[SILENT].",
+    "Nothing to report. [SILENT]!",
+    "Nothing to report.\n**[SILENT]**.",
+    "  \n[SILENT]\n  ",
+]
+
+DELIVERED_REPLIES = [
+    "I stayed quiet — replying [SILENT] — as instructed.",
+    "Nothing new.\n[SILENT]\nActually, one thing: you ran 5 miles.",
+    "You ran 5 miles, nice work.",
+]
+
+
+@pytest.mark.parametrize("reply", SILENT_REPLIES)
+def test_is_silent_reply_accepts_the_token_at_either_end(reply):
+    assert is_silent_reply(reply) is True
+
+
+@pytest.mark.parametrize("reply", DELIVERED_REPLIES + ["", None])
+def test_is_silent_reply_rejects_everything_else(reply):
+    assert is_silent_reply(reply) is False
+
+
+@pytest.mark.parametrize("reply", SILENT_REPLIES)
+async def test_silent_variants_are_successes_with_no_delivery(
+    executor, fake_firestore, fake_vertex_ai, fake_connector, job_id, reply
+):
+    fake_vertex_ai.set_text_response(VERTEX_AGENT_ID, reply)
+
+    assert await executor.execute_job(job_id, execution_id="exec-1") is True
+
+    assert fake_connector.sent_messages == []
+    doc = _job_doc(fake_firestore, job_id)
+    assert doc["consecutive_failures"] == 0
+    assert doc["last_error"] is None
+
+
+async def test_sentinel_in_the_middle_is_delivered(
     executor, fake_firestore, fake_vertex_ai, fake_connector, job_id
 ):
     fake_vertex_ai.set_text_response(
@@ -159,6 +207,19 @@ async def test_test_execute_job_honors_sentinel(
     executor, fake_firestore, fake_vertex_ai, fake_connector, job_id
 ):
     fake_vertex_ai.set_text_response(VERTEX_AGENT_ID, f"{SILENT_SENTINEL} all quiet")
+
+    result = await executor.test_execute_job(job_id)
+
+    assert result["success"] is True
+    assert fake_connector.sent_messages == []
+    assert "silently" in result["message"]
+
+
+@pytest.mark.parametrize("reply", SILENT_REPLIES)
+async def test_test_execute_job_honors_silent_variants(
+    executor, fake_firestore, fake_vertex_ai, fake_connector, job_id, reply
+):
+    fake_vertex_ai.set_text_response(VERTEX_AGENT_ID, reply)
 
     result = await executor.test_execute_job(job_id)
 
