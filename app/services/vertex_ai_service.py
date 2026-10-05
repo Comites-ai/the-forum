@@ -316,7 +316,13 @@ class VertexAIService:
 
         The chunks contain JSON with various content types including
         function calls, function responses, and text content.
-        We extract only the final text content.
+        We extract only the final text content: the text in chunks after
+        the last one holding a function_call or function_response. Text a
+        model writes in the same response as a tool call is it thinking out
+        loud ("let me check X"), not a message for the user. If the final
+        response has no text, every text part is joined instead, so an
+        agent whose real answer sat beside its last tool call still gets
+        it delivered.
 
         Also collects diagnostics (per-part-type counts and the names of
         every function_call) so MessageProcessorV2 can show a specific
@@ -334,7 +340,8 @@ class VertexAIService:
         Returns:
             Tuple of (extracted_text, breakdown_dict, function_names_list, function_errors_list).
         """
-        text_parts = []
+        text_parts = []  # (chunk index, text), in stream order
+        last_tool_chunk = -1
         function_names = []
         function_errors = []
         function_responses_raw = []  # For logging on failure
@@ -356,9 +363,10 @@ class VertexAIService:
                 for part in parts:
                     if "text" in part:
                         breakdown["text"] += 1
-                        text_parts.append(part["text"])
+                        text_parts.append((i, part["text"]))
                     elif "function_call" in part:
                         breakdown["function_call"] += 1
+                        last_tool_chunk = i
                         fc = part.get("function_call")
                         if isinstance(fc, dict):
                             name = fc.get("name")
@@ -366,6 +374,7 @@ class VertexAIService:
                                 function_names.append(name)
                     elif "function_response" in part:
                         breakdown["function_response"] += 1
+                        last_tool_chunk = i
                         fr = part.get("function_response", {})
                         function_responses_raw.append(fr)
                         # Parse function_response for error indicators
@@ -378,13 +387,24 @@ class VertexAIService:
             except json.JSONDecodeError:
                 # If not valid JSON, treat as raw text but flag it.
                 breakdown["unparseable"] += 1
-                text_parts.append(chunk_str)
+                text_parts.append((i, chunk_str))
             except Exception as e:
                 logger.debug(f"Error parsing chunk {i}: {e}")
                 breakdown["other"] += 1
                 continue
 
-        result = "".join(text_parts)
+        final_parts = [text for i, text in text_parts if i > last_tool_chunk]
+        result = "".join(final_parts)
+        if not result.strip():
+            # Nothing after the last tool call: the agent's answer, if any,
+            # sat beside a call, so deliver everything as before.
+            result = "".join(text for _, text in text_parts)
+        elif len(final_parts) < len(text_parts):
+            logger.info(
+                f"Left out {len(text_parts) - len(final_parts)} of "
+                f"{len(text_parts)} text parts written beside tool calls; "
+                f"delivering only the final reply"
+            )
 
         breakdown_str = (
             f"text={breakdown['text']} "
